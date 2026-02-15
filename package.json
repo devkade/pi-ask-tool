@@ -1,6 +1,6 @@
 {
   "name": "pi-ask-tool-extension",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Ask tool extension for pi with tabbed questioning and inline note editing",
   "repository": {
     "type": "git",
