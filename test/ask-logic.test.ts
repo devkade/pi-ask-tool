@@ -4,6 +4,7 @@ import {
 	OTHER_OPTION,
 	addRecommendedSuffix,
 	askQuestion,
+	buildMultiSelection,
 	buildSingleSelection,
 	stripRecommendedSuffix,
 	type AskQuestion,
@@ -38,6 +39,33 @@ describe("buildSingleSelection", () => {
 		expect(buildSingleSelection(OTHER_OPTION, "완전 커스텀 방식")).toEqual({
 			selectedOptions: [],
 			customInput: "완전 커스텀 방식",
+		});
+	});
+});
+
+describe("buildMultiSelection", () => {
+	it("builds selected options with per-option notes", () => {
+		const result = buildMultiSelection(
+			["JWT", "Session (Recommended)", OTHER_OPTION],
+			[0, 1],
+			["", "분할세션", ""],
+			2,
+		);
+
+		expect(result).toEqual({ selectedOptions: ["JWT", "Session - 분할세션"] });
+	});
+
+	it("puts Other note into customInput while keeping selected options", () => {
+		const result = buildMultiSelection(
+			["JWT", "Session", OTHER_OPTION],
+			[0, 2],
+			["", "", "organization-sso"],
+			2,
+		);
+
+		expect(result).toEqual({
+			selectedOptions: ["JWT"],
+			customInput: "organization-sso",
 		});
 	});
 });

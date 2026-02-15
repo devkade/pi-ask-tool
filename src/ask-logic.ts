@@ -72,6 +72,39 @@ export function buildSingleSelection(choiceLabel: string, note?: string): AskSel
 	return { selectedOptions: [normalizedChoice] };
 }
 
+export function buildMultiSelection(
+	optionLabels: string[],
+	selectedIndexes: number[],
+	notes: string[],
+	otherIndex: number,
+): AskSelection {
+	const selected = new Set(selectedIndexes);
+	const selectedOptions: string[] = [];
+	let customInput: string | undefined;
+
+	for (let index = 0; index < optionLabels.length; index++) {
+		if (!selected.has(index)) continue;
+		const label = stripRecommendedSuffix(optionLabels[index]);
+		const note = notes[index]?.trim();
+
+		if (index === otherIndex) {
+			if (note) customInput = note;
+			continue;
+		}
+
+		if (note) {
+			selectedOptions.push(`${label} - ${note}`);
+		} else {
+			selectedOptions.push(label);
+		}
+	}
+
+	if (customInput) {
+		return { selectedOptions, customInput };
+	}
+	return { selectedOptions };
+}
+
 function parseCheckboxLabel(label: string): string {
 	if (label.startsWith(CHECKED_PREFIX)) {
 		return label.slice(CHECKED_PREFIX.length);

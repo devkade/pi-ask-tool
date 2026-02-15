@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
-import { askQuestion, type AskQuestion } from "./ask-logic";
+import type { AskQuestion } from "./ask-logic";
 import { askSingleQuestionWithInlineNote } from "./ask-inline-ui";
+import { askMultiQuestionWithInlineNote } from "./ask-multi-ui";
 import { askQuestionsWithTabs } from "./ask-tabs-ui";
 
 const OptionItemSchema = Type.Object({
@@ -93,7 +94,7 @@ export default function askExtension(pi: ExtensionAPI) {
 			if (params.questions.length === 1) {
 				const [q] = params.questions;
 				const selection = q.multi
-					? await askQuestion(ctx.ui, q as AskQuestion)
+					? await askMultiQuestionWithInlineNote(ctx.ui, q as AskQuestion)
 					: await askSingleQuestionWithInlineNote(ctx.ui, q as AskQuestion);
 				const optionLabels = q.options.map((option) => option.label);
 				const details: AskToolDetails = {
@@ -144,7 +145,7 @@ export default function askExtension(pi: ExtensionAPI) {
 			} else {
 				for (const q of params.questions) {
 					const selection = q.multi
-						? await askQuestion(ctx.ui, q as AskQuestion)
+						? await askMultiQuestionWithInlineNote(ctx.ui, q as AskQuestion)
 						: await askSingleQuestionWithInlineNote(ctx.ui, q as AskQuestion);
 					results.push({
 						id: q.id,
