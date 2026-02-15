@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
 import { OTHER_OPTION, type AskQuestion } from "../src/ask-logic";
 import { askSingleQuestionWithInlineNote } from "../src/ask-inline-ui";
-import { askMultiQuestionWithInlineNote } from "../src/ask-multi-ui";
 import { askQuestionsWithTabs } from "../src/ask-tabs-ui";
 
 function uiWithCustomResult<T>(result: T): ExtensionUIContext {
@@ -55,58 +54,25 @@ describe("askSingleQuestionWithInlineNote", () => {
 	});
 });
 
-describe("askMultiQuestionWithInlineNote", () => {
-	it("builds selected options and customInput from UI state", async () => {
-		const ui = uiWithCustomResult({
-			cancelled: false,
-			selectedIndexes: [0, 1, 2],
-			notes: ["", "stateful", "organization-sso"],
-		});
-
-		const result = await askMultiQuestionWithInlineNote(ui, {
-			question: "Choose auth features",
-			options: [{ label: "JWT" }, { label: "Session" }],
-			recommended: 1,
-		});
-
-		expect(result).toEqual({
-			selectedOptions: ["JWT", "Session - stateful"],
-			customInput: "organization-sso",
-		});
-	});
-
-	it("returns empty selection when cancelled", async () => {
-		const ui = uiWithCustomResult({ cancelled: true, selectedIndexes: [0], notes: [""] });
-
-		const result = await askMultiQuestionWithInlineNote(ui, {
-			question: "Choose auth features",
-			options: [{ label: "JWT" }, { label: "Session" }],
-		});
-
-		expect(result).toEqual({ selectedOptions: [] });
-	});
-});
-
 describe("askQuestionsWithTabs", () => {
-	const questions: AskQuestion[] = [
-		{
-			id: "auth",
-			question: "Which auth?",
-			options: [{ label: "JWT" }, { label: "Session" }],
-		},
-		{
-			id: "cache",
-			question: "Which cache?",
-			options: [{ label: "Redis" }, { label: "None" }],
-		},
-	];
+	it("maps single-select questions from tab state", async () => {
+		const questions: AskQuestion[] = [
+			{
+				id: "auth",
+				question: "Which auth?",
+				options: [{ label: "JWT" }, { label: "Session" }],
+			},
+			{
+				id: "cache",
+				question: "Which cache?",
+				options: [{ label: "Redis" }, { label: "None" }],
+			},
+		];
 
-	it("returns mapped selections for each tab", async () => {
 		const ui = uiWithCustomResult({
 			cancelled: false,
-			selectedIndexes: [1, 0],
-			notes: ["split", ""],
-			answered: [true, true],
+			selectedOptionIndexesByQuestion: [[1], [0]],
+			noteByQuestionByOption: [["", "split"], ["", ""]],
 		});
 
 		const result = await askQuestionsWithTabs(ui, questions);
@@ -117,35 +83,59 @@ describe("askQuestionsWithTabs", () => {
 		});
 	});
 
-	it("maps Other to customInput in tabs flow", async () => {
+	it("maps mixed single+multi questions from tab state", async () => {
+		const questions: AskQuestion[] = [
+			{
+				id: "auth",
+				question: "Which auth methods?",
+				options: [{ label: "JWT" }, { label: "Session" }],
+				multi: true,
+			},
+			{
+				id: "cache",
+				question: "Which cache?",
+				options: [{ label: "Redis" }, { label: "None" }],
+			},
+		];
+
 		const ui = uiWithCustomResult({
 			cancelled: false,
-			selectedIndexes: [0, 2],
-			notes: ["", "custom-cache"],
-			answered: [true, true],
+			selectedOptionIndexesByQuestion: [[0, 2], [1]],
+			noteByQuestionByOption: [["", "", "org-sso"], ["", "local"]],
 		});
 
 		const result = await askQuestionsWithTabs(ui, questions);
 
 		expect(result).toEqual({
 			cancelled: false,
-			selections: [{ selectedOptions: ["JWT"] }, { selectedOptions: [], customInput: "custom-cache" }],
+			selections: [
+				{ selectedOptions: ["JWT"], customInput: "org-sso" },
+				{ selectedOptions: ["None - local"] },
+			],
 		});
 	});
 
-	it("returns empty selection for unanswered questions", async () => {
+	it("maps single multi-select question with submit tab state", async () => {
+		const questions: AskQuestion[] = [
+			{
+				id: "auth",
+				question: "Which auth methods?",
+				options: [{ label: "JWT" }, { label: "Session" }],
+				multi: true,
+			},
+		];
+
 		const ui = uiWithCustomResult({
-			cancelled: true,
-			selectedIndexes: [0, 0],
-			notes: ["", ""],
-			answered: [true, false],
+			cancelled: false,
+			selectedOptionIndexesByQuestion: [[1]],
+			noteByQuestionByOption: [["", "stateful"]],
 		});
 
 		const result = await askQuestionsWithTabs(ui, questions);
 
 		expect(result).toEqual({
-			cancelled: true,
-			selections: [{ selectedOptions: ["JWT"] }, { selectedOptions: [] }],
+			cancelled: false,
+			selections: [{ selectedOptions: ["Session - stateful"] }],
 		});
 	});
 });

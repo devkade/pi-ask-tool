@@ -3,6 +3,7 @@ import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth } from "@mar
 import {
 	OTHER_OPTION,
 	appendRecommendedTagToOptionLabels,
+	buildMultiSelectionResult,
 	buildSingleSelectionResult,
 	type AskQuestion,
 	type AskSelection,
@@ -13,13 +14,14 @@ interface PreparedQuestion {
 	question: string;
 	options: string[];
 	tabLabel: string;
+	multi: boolean;
+	otherOptionIndex: number;
 }
 
 interface TabsUIState {
 	cancelled: boolean;
-	selectedIndexes: number[];
-	notes: string[];
-	answered: boolean[];
+	selectedOptionIndexesByQuestion: number[][];
+	noteByQuestionByOption: string[][];
 }
 
 function clampIndex(index: number | undefined, maxExclusive: number): number {
@@ -34,44 +36,87 @@ function normalizeTabLabel(id: string, fallback: string): string {
 	return normalized.length > 0 ? normalized : fallback;
 }
 
-function snapshotState(
+function buildSelectionForQuestion(
+	question: PreparedQuestion,
+	selectedOptionIndexes: number[],
+	noteByOptionIndex: string[],
+): AskSelection {
+	if (selectedOptionIndexes.length === 0) {
+		return { selectedOptions: [] };
+	}
+
+	if (question.multi) {
+		return buildMultiSelectionResult(question.options, selectedOptionIndexes, noteByOptionIndex, question.otherOptionIndex);
+	}
+
+	const selectedOptionIndex = selectedOptionIndexes[0];
+	const selectedOptionLabel = question.options[selectedOptionIndex] ?? OTHER_OPTION;
+	const note = noteByOptionIndex[selectedOptionIndex] ?? "";
+	return buildSingleSelectionResult(selectedOptionLabel, note);
+}
+
+function isQuestionSelectionValid(
+	question: PreparedQuestion,
+	selectedOptionIndexes: number[],
+	noteByOptionIndex: string[],
+): boolean {
+	if (selectedOptionIndexes.length === 0) return false;
+	if (!selectedOptionIndexes.includes(question.otherOptionIndex)) return true;
+	const otherNote = noteByOptionIndex[question.otherOptionIndex]?.trim() ?? "";
+	return otherNote.length > 0;
+}
+
+function createTabsUiStateSnapshot(
 	cancelled: boolean,
-	selectedIndexes: number[],
-	notes: string[],
-	answered: boolean[],
+	selectedOptionIndexesByQuestion: number[][],
+	noteByQuestionByOption: string[][],
 ): TabsUIState {
 	return {
 		cancelled,
-		selectedIndexes: [...selectedIndexes],
-		notes: [...notes],
-		answered: [...answered],
+		selectedOptionIndexesByQuestion: selectedOptionIndexesByQuestion.map((indexes) => [...indexes]),
+		noteByQuestionByOption: noteByQuestionByOption.map((notes) => [...notes]),
 	};
+}
+
+function addIndexToSelection(selectedOptionIndexes: number[], optionIndex: number): number[] {
+	if (selectedOptionIndexes.includes(optionIndex)) return selectedOptionIndexes;
+	return [...selectedOptionIndexes, optionIndex].sort((a, b) => a - b);
+}
+
+function removeIndexFromSelection(selectedOptionIndexes: number[], optionIndex: number): number[] {
+	return selectedOptionIndexes.filter((index) => index !== optionIndex);
 }
 
 export async function askQuestionsWithTabs(
 	ui: ExtensionUIContext,
 	questions: AskQuestion[],
 ): Promise<{ cancelled: boolean; selections: AskSelection[] }> {
-	const prepared: PreparedQuestion[] = questions.map((q, index) => {
-		const optionLabels = q.options.map((option) => option.label);
-		const options = [...appendRecommendedTagToOptionLabels(optionLabels, q.recommended), OTHER_OPTION];
+	const preparedQuestions: PreparedQuestion[] = questions.map((question, questionIndex) => {
+		const baseOptionLabels = question.options.map((option) => option.label);
+		const optionLabels = [...appendRecommendedTagToOptionLabels(baseOptionLabels, question.recommended), OTHER_OPTION];
 		return {
-			id: q.id,
-			question: q.question,
-			options,
-			tabLabel: normalizeTabLabel(q.id, `Q${index + 1}`),
+			id: question.id,
+			question: question.question,
+			options: optionLabels,
+			tabLabel: normalizeTabLabel(question.id, `Q${questionIndex + 1}`),
+			multi: question.multi === true,
+			otherOptionIndex: optionLabels.length - 1,
 		};
 	});
 
-	const initialIndexes = prepared.map((q, index) => clampIndex(questions[index].recommended, q.options.length));
+	const initialCursorOptionIndexByQuestion = preparedQuestions.map((preparedQuestion, questionIndex) =>
+		clampIndex(questions[questionIndex].recommended, preparedQuestion.options.length),
+	);
 
 	const result = await ui.custom<TabsUIState>((tui, theme, _keybindings, done) => {
-		let currentTab = 0;
-		let editMode = false;
-		let cachedLines: string[] | undefined;
-		const selectedIndexes = [...initialIndexes];
-		const notes = Array(prepared.length).fill("") as string[];
-		const answered = Array(prepared.length).fill(false) as boolean[];
+		let activeTabIndex = 0;
+		let isNoteEditorOpen = false;
+		let cachedRenderedLines: string[] | undefined;
+		const cursorOptionIndexByQuestion = [...initialCursorOptionIndexByQuestion];
+		const selectedOptionIndexesByQuestion = preparedQuestions.map(() => [] as number[]);
+		const noteByQuestionByOption = preparedQuestions.map((preparedQuestion) =>
+			Array(preparedQuestion.options.length).fill("") as string[],
+		);
 
 		const editorTheme: EditorTheme = {
 			borderColor: (text) => theme.fg("accent", text),
@@ -83,251 +128,361 @@ export async function askQuestionsWithTabs(
 				noMatch: (text) => theme.fg("warning", text),
 			},
 		};
-		const editor = new Editor(tui, editorTheme);
+		const noteEditor = new Editor(tui, editorTheme);
 
-		const refresh = () => {
-			cachedLines = undefined;
+		const submitTabIndex = preparedQuestions.length;
+
+		const requestUiRerender = () => {
+			cachedRenderedLines = undefined;
 			tui.requestRender();
 		};
 
-		const getSelectedOption = (questionIndex: number): string => {
-			const q = prepared[questionIndex];
-			return q.options[selectedIndexes[questionIndex]] ?? OTHER_OPTION;
+		const getActiveQuestionIndex = (): number | null => {
+			if (activeTabIndex >= preparedQuestions.length) return null;
+			return activeTabIndex;
 		};
 
-		const getNote = (questionIndex: number): string => notes[questionIndex]?.trim() ?? "";
+		const getQuestionNote = (questionIndex: number, optionIndex: number): string =>
+			noteByQuestionByOption[questionIndex]?.[optionIndex] ?? "";
 
-		const isAnswerValid = (questionIndex: number): boolean => {
-			if (!answered[questionIndex]) return false;
-			const selectedOption = getSelectedOption(questionIndex);
-			if (selectedOption === OTHER_OPTION) {
-				return getNote(questionIndex).length > 0;
-			}
-			return true;
+		const getTrimmedQuestionNote = (questionIndex: number, optionIndex: number): string =>
+			getQuestionNote(questionIndex, optionIndex).trim();
+
+		const isAllQuestionSelectionsValid = (): boolean =>
+			preparedQuestions.every((preparedQuestion, questionIndex) =>
+				isQuestionSelectionValid(
+					preparedQuestion,
+					selectedOptionIndexesByQuestion[questionIndex],
+					noteByQuestionByOption[questionIndex],
+				),
+			);
+
+		const openNoteEditorForActiveOption = () => {
+			const questionIndex = getActiveQuestionIndex();
+			if (questionIndex == null) return;
+
+			isNoteEditorOpen = true;
+			const optionIndex = cursorOptionIndexByQuestion[questionIndex];
+			noteEditor.setText(getQuestionNote(questionIndex, optionIndex));
+			requestUiRerender();
 		};
 
-		const allAnswered = (): boolean => prepared.every((_, index) => isAnswerValid(index));
-
-		const gotoSubmitIfLast = () => {
-			if (currentTab >= prepared.length - 1) {
-				currentTab = prepared.length;
-			} else {
-				currentTab += 1;
-			}
+		const advanceToNextTabOrSubmit = () => {
+			activeTabIndex = Math.min(submitTabIndex, activeTabIndex + 1);
 		};
 
-		const openNoteEditor = () => {
-			if (currentTab >= prepared.length) return;
-			editMode = true;
-			editor.setText(notes[currentTab] ?? "");
-			refresh();
+		noteEditor.onChange = (value) => {
+			const questionIndex = getActiveQuestionIndex();
+			if (questionIndex == null) return;
+			const optionIndex = cursorOptionIndexByQuestion[questionIndex];
+			noteByQuestionByOption[questionIndex][optionIndex] = value;
+			requestUiRerender();
 		};
 
-		editor.onChange = (value) => {
-			if (currentTab < prepared.length) {
-				notes[currentTab] = value;
-				refresh();
-			}
-		};
+		noteEditor.onSubmit = (value) => {
+			const questionIndex = getActiveQuestionIndex();
+			if (questionIndex == null) return;
 
-		editor.onSubmit = (value) => {
-			if (currentTab >= prepared.length) return;
+			const preparedQuestion = preparedQuestions[questionIndex];
+			const optionIndex = cursorOptionIndexByQuestion[questionIndex];
+			noteByQuestionByOption[questionIndex][optionIndex] = value;
+			const trimmedNote = value.trim();
 
-			notes[currentTab] = value;
-			const selectedOption = getSelectedOption(currentTab);
-			if (selectedOption === OTHER_OPTION && getNote(currentTab).length === 0) {
-				refresh();
+			if (preparedQuestion.multi) {
+				if (trimmedNote.length > 0) {
+					selectedOptionIndexesByQuestion[questionIndex] = addIndexToSelection(
+						selectedOptionIndexesByQuestion[questionIndex],
+						optionIndex,
+					);
+				}
+				if (optionIndex === preparedQuestion.otherOptionIndex && trimmedNote.length === 0) {
+					requestUiRerender();
+					return;
+				}
+				isNoteEditorOpen = false;
+				requestUiRerender();
 				return;
 			}
 
-			answered[currentTab] = true;
-			editMode = false;
-			gotoSubmitIfLast();
-			refresh();
+			selectedOptionIndexesByQuestion[questionIndex] = [optionIndex];
+			if (optionIndex === preparedQuestion.otherOptionIndex && trimmedNote.length === 0) {
+				requestUiRerender();
+				return;
+			}
+
+			isNoteEditorOpen = false;
+			advanceToNextTabOrSubmit();
+			requestUiRerender();
 		};
 
 		const renderTabs = (): string => {
-			const parts: string[] = ["← "];
-			for (let i = 0; i < prepared.length; i++) {
-				const active = i === currentTab;
-				const complete = isAnswerValid(i);
-				const icon = complete ? "■" : "□";
-				const label = ` ${icon} ${prepared[i].tabLabel} `;
-				const styled = active
-					? theme.bg("selectedBg", theme.fg("text", label))
-					: theme.fg(complete ? "success" : "muted", label);
-				parts.push(`${styled} `);
+			const tabParts: string[] = ["← "];
+			for (let questionIndex = 0; questionIndex < preparedQuestions.length; questionIndex++) {
+				const preparedQuestion = preparedQuestions[questionIndex];
+				const isActiveTab = questionIndex === activeTabIndex;
+				const isQuestionValid = isQuestionSelectionValid(
+					preparedQuestion,
+					selectedOptionIndexesByQuestion[questionIndex],
+					noteByQuestionByOption[questionIndex],
+				);
+				const statusIcon = isQuestionValid ? "■" : "□";
+				const tabLabel = ` ${statusIcon} ${preparedQuestion.tabLabel} `;
+				const styledTabLabel = isActiveTab
+					? theme.bg("selectedBg", theme.fg("text", tabLabel))
+					: theme.fg(isQuestionValid ? "success" : "muted", tabLabel);
+				tabParts.push(`${styledTabLabel} `);
 			}
 
-			const submitActive = currentTab === prepared.length;
-			const submitReady = allAnswered();
+			const isSubmitTabActive = activeTabIndex === submitTabIndex;
+			const canSubmit = isAllQuestionSelectionsValid();
 			const submitLabel = " ✓ Submit ";
-			const submitStyled = submitActive
+			const styledSubmitLabel = isSubmitTabActive
 				? theme.bg("selectedBg", theme.fg("text", submitLabel))
-				: theme.fg(submitReady ? "success" : "dim", submitLabel);
-			parts.push(`${submitStyled} →`);
-			return parts.join("");
+				: theme.fg(canSubmit ? "success" : "dim", submitLabel);
+			tabParts.push(`${styledSubmitLabel} →`);
+			return tabParts.join("");
+		};
+
+		const renderSubmitTab = (width: number, renderedLines: string[]): void => {
+			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
+
+			addLine(theme.fg("accent", theme.bold(" Review answers")));
+			renderedLines.push("");
+
+			for (let questionIndex = 0; questionIndex < preparedQuestions.length; questionIndex++) {
+				const preparedQuestion = preparedQuestions[questionIndex];
+				const selection = buildSelectionForQuestion(
+					preparedQuestion,
+					selectedOptionIndexesByQuestion[questionIndex],
+					noteByQuestionByOption[questionIndex],
+				);
+				const value =
+					selection.customInput ??
+					(selection.selectedOptions.length > 0
+						? preparedQuestion.multi
+							? `[${selection.selectedOptions.join(", ")}]`
+							: selection.selectedOptions[0]
+						: "(not answered)");
+				const isValid = isQuestionSelectionValid(
+					preparedQuestion,
+					selectedOptionIndexesByQuestion[questionIndex],
+					noteByQuestionByOption[questionIndex],
+				);
+				const statusIcon = isValid ? theme.fg("success", "●") : theme.fg("warning", "○");
+				addLine(` ${statusIcon} ${theme.fg("muted", `${preparedQuestion.tabLabel}:`)} ${theme.fg("text", value)}`);
+			}
+
+			renderedLines.push("");
+			if (isAllQuestionSelectionsValid()) {
+				addLine(theme.fg("success", " Press Enter to submit"));
+			} else {
+				const missingQuestions = preparedQuestions
+					.filter((preparedQuestion, questionIndex) =>
+						!isQuestionSelectionValid(
+							preparedQuestion,
+							selectedOptionIndexesByQuestion[questionIndex],
+							noteByQuestionByOption[questionIndex],
+						),
+					)
+					.map((preparedQuestion) => preparedQuestion.tabLabel)
+					.join(", ");
+				addLine(theme.fg("warning", ` Complete required answers: ${missingQuestions}`));
+			}
+			addLine(theme.fg("dim", " ←/→ switch tabs • Esc cancel"));
+		};
+
+		const renderQuestionTab = (width: number, renderedLines: string[], questionIndex: number): void => {
+			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
+			const preparedQuestion = preparedQuestions[questionIndex];
+			const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
+			const selectedOptionIndexes = selectedOptionIndexesByQuestion[questionIndex];
+
+			addLine(theme.fg("text", ` ${preparedQuestion.question}`));
+			renderedLines.push("");
+
+			for (let optionIndex = 0; optionIndex < preparedQuestion.options.length; optionIndex++) {
+				const optionLabel = preparedQuestion.options[optionIndex];
+				const isCursorOption = optionIndex === cursorOptionIndex;
+				const isOptionSelected = selectedOptionIndexes.includes(optionIndex);
+				const cursorPrefix = isCursorOption ? theme.fg("accent", "→ ") : "  ";
+				if (preparedQuestion.multi) {
+					const checkbox = isOptionSelected ? "[x]" : "[ ]";
+					const optionColor = isCursorOption ? "accent" : isOptionSelected ? "success" : "text";
+					addLine(`${cursorPrefix}${theme.fg(optionColor, `${checkbox} ${optionLabel}`)}`);
+				} else {
+					const bullet = isOptionSelected ? "●" : "○";
+					const optionColor = isCursorOption ? "accent" : isOptionSelected ? "success" : "text";
+					addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabel}`)}`);
+				}
+
+				const note = getTrimmedQuestionNote(questionIndex, optionIndex);
+				if (note) {
+					addLine(`   ${theme.fg("muted", `• Note: ${note}`)}`);
+				}
+			}
+
+			renderedLines.push("");
+			if (isNoteEditorOpen) {
+				addLine(theme.fg("muted", " Note (Tab/Esc to return to options):"));
+				for (const line of noteEditor.render(Math.max(10, width - 2))) {
+					addLine(` ${line}`);
+				}
+				renderedLines.push("");
+				addLine(theme.fg("dim", " Enter save note • Tab/Esc back"));
+			} else {
+				if (preparedQuestion.multi) {
+					addLine(
+						theme.fg(
+							"dim",
+							" ↑↓ move • Enter toggle/select • Tab add note • ←/→ switch tabs • Esc cancel",
+						),
+					);
+				} else {
+					addLine(
+						theme.fg("dim", " ↑↓ move • Enter select • Tab add note • ←/→ switch tabs • Esc cancel"),
+					);
+				}
+			}
 		};
 
 		const render = (width: number): string[] => {
-			if (cachedLines) return cachedLines;
+			if (cachedRenderedLines) return cachedRenderedLines;
 
-			const lines: string[] = [];
-			const add = (line: string) => lines.push(truncateToWidth(line, width));
+			const renderedLines: string[] = [];
+			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
 
-			add(theme.fg("accent", "─".repeat(width)));
-			add(` ${renderTabs()}`);
-			lines.push("");
+			addLine(theme.fg("accent", "─".repeat(width)));
+			addLine(` ${renderTabs()}`);
+			renderedLines.push("");
 
-			if (currentTab === prepared.length) {
-				add(theme.fg("accent", theme.bold(" Review answers")));
-				lines.push("");
-				for (let i = 0; i < prepared.length; i++) {
-					const optionLabel = getSelectedOption(i);
-					const note = getNote(i);
-					const combined = buildSingleSelectionResult(optionLabel, note);
-					const value = combined.customInput ?? combined.selectedOptions[0] ?? "(not answered)";
-					const status = isAnswerValid(i) ? theme.fg("success", "●") : theme.fg("warning", "○");
-					add(` ${status} ${theme.fg("muted", `${prepared[i].tabLabel}:`)} ${theme.fg("text", value)}`);
-				}
-
-				lines.push("");
-				if (allAnswered()) {
-					add(theme.fg("success", " Press Enter to submit"));
-				} else {
-					const missing = prepared
-						.filter((_, index) => !isAnswerValid(index))
-						.map((q) => q.tabLabel)
-						.join(", ");
-					add(theme.fg("warning", ` Complete required answers: ${missing}`));
-				}
-				add(theme.fg("dim", " ←/→ switch tabs • Esc cancel"));
-				add(theme.fg("accent", "─".repeat(width)));
-				cachedLines = lines;
-				return lines;
-			}
-
-			const activeQuestion = prepared[currentTab];
-			add(theme.fg("text", ` ${activeQuestion.question}`));
-			lines.push("");
-
-			for (let i = 0; i < activeQuestion.options.length; i++) {
-				const optionLabel = activeQuestion.options[i];
-				const selected = i === selectedIndexes[currentTab];
-				const pointer = selected ? theme.fg("accent", "→ ") : "  ";
-				const bullet = selected ? "●" : "○";
-				const color = selected ? "accent" : "text";
-				add(`${pointer}${theme.fg(color, `${bullet} ${optionLabel}`)}`);
-			}
-
-			const note = getNote(currentTab);
-			lines.push("");
-			if (editMode) {
-				add(theme.fg("muted", " Note (Tab/Esc to return to options):"));
-				for (const line of editor.render(Math.max(10, width - 2))) {
-					add(` ${line}`);
-				}
-				lines.push("");
-				add(theme.fg("dim", " Enter save • Tab/Esc back"));
-			} else if (note) {
-				add(theme.fg("muted", ` Note: ${note}`));
-				lines.push("");
-				add(theme.fg("dim", " ↑↓ move • Enter select • Tab edit note • ←/→ switch tabs • Esc cancel"));
+			if (activeTabIndex === submitTabIndex) {
+				renderSubmitTab(width, renderedLines);
 			} else {
-				add(theme.fg("dim", " ↑↓ move • Enter select • Tab add note • ←/→ switch tabs • Esc cancel"));
+				renderQuestionTab(width, renderedLines, activeTabIndex);
 			}
 
-			add(theme.fg("accent", "─".repeat(width)));
-			cachedLines = lines;
-			return lines;
+			addLine(theme.fg("accent", "─".repeat(width)));
+			cachedRenderedLines = renderedLines;
+			return renderedLines;
 		};
 
 		const handleInput = (data: string) => {
-			if (editMode) {
+			if (isNoteEditorOpen) {
 				if (matchesKey(data, Key.tab) || matchesKey(data, Key.escape)) {
-					editMode = false;
-					refresh();
+					isNoteEditorOpen = false;
+					requestUiRerender();
 					return;
 				}
-				editor.handleInput(data);
-				refresh();
+				noteEditor.handleInput(data);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.left)) {
-				currentTab = (currentTab - 1 + prepared.length + 1) % (prepared.length + 1);
-				refresh();
+				activeTabIndex = (activeTabIndex - 1 + preparedQuestions.length + 1) % (preparedQuestions.length + 1);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.right)) {
-				currentTab = (currentTab + 1) % (prepared.length + 1);
-				refresh();
+				activeTabIndex = (activeTabIndex + 1) % (preparedQuestions.length + 1);
+				requestUiRerender();
 				return;
 			}
 
-			if (currentTab === prepared.length) {
-				if (matchesKey(data, Key.enter) && allAnswered()) {
-					done(snapshotState(false, selectedIndexes, notes, answered));
+			if (activeTabIndex === submitTabIndex) {
+				if (matchesKey(data, Key.enter) && isAllQuestionSelectionsValid()) {
+					done(createTabsUiStateSnapshot(false, selectedOptionIndexesByQuestion, noteByQuestionByOption));
 					return;
 				}
 				if (matchesKey(data, Key.escape)) {
-					done(snapshotState(true, selectedIndexes, notes, answered));
+					done(createTabsUiStateSnapshot(true, selectedOptionIndexesByQuestion, noteByQuestionByOption));
 				}
 				return;
 			}
 
-			const activeQuestion = prepared[currentTab];
+			const questionIndex = activeTabIndex;
+			const preparedQuestion = preparedQuestions[questionIndex];
+
 			if (matchesKey(data, Key.up)) {
-				selectedIndexes[currentTab] = Math.max(0, selectedIndexes[currentTab] - 1);
-				refresh();
+				cursorOptionIndexByQuestion[questionIndex] = Math.max(0, cursorOptionIndexByQuestion[questionIndex] - 1);
+				requestUiRerender();
 				return;
 			}
+
 			if (matchesKey(data, Key.down)) {
-				selectedIndexes[currentTab] = Math.min(activeQuestion.options.length - 1, selectedIndexes[currentTab] + 1);
-				refresh();
+				cursorOptionIndexByQuestion[questionIndex] = Math.min(
+					preparedQuestion.options.length - 1,
+					cursorOptionIndexByQuestion[questionIndex] + 1,
+				);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.tab)) {
-				openNoteEditor();
+				openNoteEditorForActiveOption();
 				return;
 			}
 
 			if (matchesKey(data, Key.enter)) {
-				answered[currentTab] = true;
-				const selectedOption = getSelectedOption(currentTab);
-				if (selectedOption === OTHER_OPTION && getNote(currentTab).length === 0) {
-					openNoteEditor();
+				const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
+
+				if (preparedQuestion.multi) {
+					const currentlySelected = selectedOptionIndexesByQuestion[questionIndex];
+					if (currentlySelected.includes(cursorOptionIndex)) {
+						selectedOptionIndexesByQuestion[questionIndex] = removeIndexFromSelection(currentlySelected, cursorOptionIndex);
+					} else {
+						selectedOptionIndexesByQuestion[questionIndex] = addIndexToSelection(currentlySelected, cursorOptionIndex);
+					}
+
+					if (
+						cursorOptionIndex === preparedQuestion.otherOptionIndex &&
+						selectedOptionIndexesByQuestion[questionIndex].includes(cursorOptionIndex) &&
+						getTrimmedQuestionNote(questionIndex, cursorOptionIndex).length === 0
+					) {
+						openNoteEditorForActiveOption();
+						return;
+					}
+
+					requestUiRerender();
 					return;
 				}
-				gotoSubmitIfLast();
-				refresh();
+
+				selectedOptionIndexesByQuestion[questionIndex] = [cursorOptionIndex];
+				if (
+					cursorOptionIndex === preparedQuestion.otherOptionIndex &&
+					getTrimmedQuestionNote(questionIndex, cursorOptionIndex).length === 0
+				) {
+					openNoteEditorForActiveOption();
+					return;
+				}
+
+				advanceToNextTabOrSubmit();
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.escape)) {
-				done(snapshotState(true, selectedIndexes, notes, answered));
+				done(createTabsUiStateSnapshot(true, selectedOptionIndexesByQuestion, noteByQuestionByOption));
 			}
 		};
 
 		return {
 			render,
 			invalidate: () => {
-				cachedLines = undefined;
+				cachedRenderedLines = undefined;
 			},
 			handleInput,
 		};
 	});
 
-	const selections = prepared.map((q, index) => {
-		if (!result.answered[index]) {
-			return { selectedOptions: [] } satisfies AskSelection;
-		}
-		const selectedOption = q.options[result.selectedIndexes[index]];
-		const note = result.notes[index];
-		return buildSingleSelectionResult(selectedOption, note);
-	});
+	const selections = preparedQuestions.map((preparedQuestion, questionIndex) =>
+		buildSelectionForQuestion(
+			preparedQuestion,
+			result.selectedOptionIndexesByQuestion[questionIndex] ?? [],
+			result.noteByQuestionByOption[questionIndex] ?? Array(preparedQuestion.options.length).fill(""),
+		),
+	);
 
 	return { cancelled: result.cancelled, selections };
 }

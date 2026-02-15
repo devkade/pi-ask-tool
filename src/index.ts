@@ -2,7 +2,6 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
 import type { AskQuestion } from "./ask-logic";
 import { askSingleQuestionWithInlineNote } from "./ask-inline-ui";
-import { askMultiQuestionWithInlineNote } from "./ask-multi-ui";
 import { askQuestionsWithTabs } from "./ask-tabs-ui";
 
 const OptionItemSchema = Type.Object({
@@ -94,7 +93,7 @@ export default function askExtension(pi: ExtensionAPI) {
 			if (params.questions.length === 1) {
 				const [q] = params.questions;
 				const selection = q.multi
-					? await askMultiQuestionWithInlineNote(ctx.ui, q as AskQuestion)
+					? (await askQuestionsWithTabs(ctx.ui, [q as AskQuestion])).selections[0] ?? { selectedOptions: [] }
 					: await askSingleQuestionWithInlineNote(ctx.ui, q as AskQuestion);
 				const optionLabels = q.options.map((option) => option.label);
 				const details: AskToolDetails = {
@@ -126,36 +125,18 @@ export default function askExtension(pi: ExtensionAPI) {
 			}
 
 			const results: QuestionResult[] = [];
-			const hasMultiSelectQuestion = params.questions.some((q) => q.multi === true);
-
-			if (!hasMultiSelectQuestion) {
-				const tabResult = await askQuestionsWithTabs(ctx.ui, params.questions as AskQuestion[]);
-				for (let i = 0; i < params.questions.length; i++) {
-					const q = params.questions[i];
-					const selection = tabResult.selections[i] ?? { selectedOptions: [] };
-					results.push({
-						id: q.id,
-						question: q.question,
-						options: q.options.map((option) => option.label),
-						multi: q.multi ?? false,
-						selectedOptions: selection.selectedOptions,
-						customInput: selection.customInput,
-					});
-				}
-			} else {
-				for (const q of params.questions) {
-					const selection = q.multi
-						? await askMultiQuestionWithInlineNote(ctx.ui, q as AskQuestion)
-						: await askSingleQuestionWithInlineNote(ctx.ui, q as AskQuestion);
-					results.push({
-						id: q.id,
-						question: q.question,
-						options: q.options.map((option) => option.label),
-						multi: q.multi ?? false,
-						selectedOptions: selection.selectedOptions,
-						customInput: selection.customInput,
-					});
-				}
+			const tabResult = await askQuestionsWithTabs(ctx.ui, params.questions as AskQuestion[]);
+			for (let i = 0; i < params.questions.length; i++) {
+				const q = params.questions[i];
+				const selection = tabResult.selections[i] ?? { selectedOptions: [] };
+				results.push({
+					id: q.id,
+					question: q.question,
+					options: q.options.map((option) => option.label),
+					multi: q.multi ?? false,
+					selectedOptions: selection.selectedOptions,
+					customInput: selection.customInput,
+				});
 			}
 
 			return {

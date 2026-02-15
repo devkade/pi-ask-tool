@@ -89,7 +89,7 @@ describe("ask extension tool", () => {
 		});
 	});
 
-	it("handles single multi question with selected options + custom input", async () => {
+	it("handles single multi question via tab submit flow", async () => {
 		const tool = createAskTool();
 		const result = await tool.execute(
 			"call-4",
@@ -110,8 +110,8 @@ describe("ask extension tool", () => {
 				ui: uiWithCustomQueue([
 					{
 						cancelled: false,
-						selectedIndexes: [0, 2],
-						notes: ["", "", "org-sso"],
+						selectedOptionIndexesByQuestion: [[0, 2]],
+						noteByQuestionByOption: [["", "", "org-sso"]],
 					},
 				]),
 			} as any,
@@ -152,9 +152,8 @@ describe("ask extension tool", () => {
 				ui: uiWithCustomQueue([
 					{
 						cancelled: false,
-						selectedIndexes: [0, 1],
-						notes: ["", ""],
-						answered: [true, true],
+						selectedOptionIndexesByQuestion: [[0], [1]],
+						noteByQuestionByOption: [["", ""], ["", ""]],
 					},
 				]),
 			} as any,
@@ -181,7 +180,7 @@ describe("ask extension tool", () => {
 		]);
 	});
 
-	it("uses mixed flow when any question is multi-select", async () => {
+	it("uses tab flow when any question is multi-select", async () => {
 		const tool = createAskTool();
 		const result = await tool.execute(
 			"call-6",
@@ -205,8 +204,11 @@ describe("ask extension tool", () => {
 			{
 				hasUI: true,
 				ui: uiWithCustomQueue([
-					{ cancelled: false, selectedIndexes: [1], notes: ["", "", ""] },
-					{ cancelled: false, selectedOption: "Redis", note: "local" },
+					{
+						cancelled: false,
+						selectedOptionIndexesByQuestion: [[1], [0]],
+						noteByQuestionByOption: [["", ""], ["local", ""]],
+					},
 				]),
 			} as any,
 		);
