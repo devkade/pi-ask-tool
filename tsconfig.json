@@ -9,5 +9,5 @@
     "types": ["bun-types"],
     "skipLibCheck": true
   },
-  "include": ["ask-extension.ts", "src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

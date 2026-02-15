@@ -45,7 +45,7 @@ pi install git:github.com/devkade/pi-ask-tool@v0.1.0
 ### Local development run
 
 ```bash
-pi -e ./ask-extension.ts
+pi -e ./src/index.ts
 ```
 
 ## Quick Start
@@ -174,8 +174,7 @@ npm run typecheck
 
 ## Project Structure
 
-- `ask-extension.ts` - extension entrypoint
-- `src/index.ts` - tool registration and orchestration
+- `src/index.ts` - extension entrypoint, tool registration, and orchestration
 - `src/ask-logic.ts` - selection/result mapping helpers
 - `src/ask-inline-ui.ts` - single-question UI
 - `src/ask-tabs-ui.ts` - tabbed multi-question UI

@@ -16,11 +16,10 @@
   ],
   "pi": {
     "extensions": [
-      "./ask-extension.ts"
+      "./src/index.ts"
     ]
   },
   "files": [
-    "ask-extension.ts",
     "src",
     "README.md"
   ],
