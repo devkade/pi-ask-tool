@@ -1,55 +1,152 @@
-# pi Ask Tool Extension
+# Pi Ask Tool Extension
 
-`oh-my-pi`의 **+ Ask Tool (Interactive Questioning)** 패턴을 `pi` extension으로 옮긴 구현입니다.
+An extension for the [Pi coding agent](https://github.com/badlogic/pi-mono/) that adds a structured `ask` tool with interactive, tab-based questioning and inline note editing.
 
-## 포함 기능
+```ts
+ask({
+  questions: [
+    {
+      id: "auth",
+      question: "Which authentication model should we use?",
+      options: [{ label: "JWT" }, { label: "Session" }],
+      recommended: 1
+    }
+  ]
+})
+```
 
-- `ask` 커스텀 툴 등록
-- 단일 질문 / 다중 질문(`questions[]`) 지원
-- 멀티 선택(`multi: true`) 지원
-- 추천 옵션(`recommended`) 표시
-- `Other (type your own)` 자동 입력 분기
-- 단일 선택 질문에서 `Tab`으로 **동일 화면 내 추가 의견 입력** 지원
-  - 예: `세션 기반 인증` 선택 + `Tab` 입력 + 의견 작성 + `Enter`
-  - 결과: `세션 기반 인증 - 분할세션`
-- 멀티 선택 질문(`multi: true`)도 별도 팝업 없이 **같은 화면에서 선택 + note 입력 통합**
-  - 체크 스타일(`[ ]` / `[x]`) 선택 이펙트 제공
-  - `Other` 선택 시에도 같은 화면에서 `Tab`으로 note 입력
-- 다중 질문(`questions` 2개 이상, 단일/멀티 혼합 포함)에서 **상단 탭 + Submit 확인 화면** 지원
-- 단일 질문이라도 `multi: true`인 경우 **질문 탭 + Submit 탭** 흐름으로 진행
-- 단일/탭 UI 선택지는 **원형 bullet(○/●)** 스타일 지원
-- 내비게이션/도움말 문구는 영문(`move`, `submit`, `add note`, `cancel`)으로 표시
-- 인터랙티브 UI가 없는 모드에서는 에러 반환
+## Why
 
-## 파일 구조
+When an agent needs a decision from you, free-form prompts are slow and inconsistent.
+This extension provides:
 
-- `ask-extension.ts` - extension 엔트리
-- `src/index.ts` - pi extension 등록/실행 로직
-- `src/ask-logic.ts` - 질문 선택/결과 조합 로직
-- `src/ask-inline-ui.ts` - 단일 비멀티 질문용 인라인 입력 UI (`Tab` 의견 작성)
-- `src/ask-tabs-ui.ts` - 질문 탭 UI + Submit 검토 화면 (단일 멀티/다중 질문 공용)
-- `test/ask-logic.test.ts` - 핵심 로직 테스트
+- **Structured options** with clear IDs and deterministic outputs
+- **Single + multi-select** in one tool
+- **Tab-based multi-question flow** with a final submit review tab
+- **Inline note editing** (no large UI pane shifts)
+- **Automatic `Other (type your own)` handling**
 
-## 실행 방법
+## Install
 
-### 빠른 테스트
+### From npm
+
+```bash
+pi install npm:pi-ask-tool-extension
+```
+
+### From git
+
+```bash
+pi install git:github.com/devkade/pi-ask-tool@main
+# or pin a tag
+pi install git:github.com/devkade/pi-ask-tool@v0.1.0
+```
+
+### Local development run
 
 ```bash
 pi -e ./ask-extension.ts
 ```
 
-### /reload 지원(권장)
+## Quick Start
 
-프로젝트에 배치:
+### Single question (single-select)
 
-```bash
-mkdir -p .pi/extensions/ask-tool
-cp -R ask-extension.ts src .pi/extensions/ask-tool/
+```ts
+ask({
+  questions: [
+    {
+      id: "auth",
+      question: "Which auth approach?",
+      options: [{ label: "JWT" }, { label: "Session" }],
+      recommended: 1
+    }
+  ]
+})
 ```
 
-그 다음 pi에서 `/reload`.
+Result example:
 
-## 툴 파라미터 스키마
+```txt
+User selected: Session
+```
+
+### Single question (multi-select)
+
+```ts
+ask({
+  questions: [
+    {
+      id: "features",
+      question: "Which features should be enabled?",
+      options: [{ label: "Logging" }, { label: "Metrics" }, { label: "Tracing" }],
+      multi: true
+    }
+  ]
+})
+```
+
+Result example:
+
+```txt
+User selected: Logging, Metrics
+```
+
+### Multi-question (tab flow)
+
+```ts
+ask({
+  questions: [
+    {
+      id: "auth",
+      question: "Which auth approach?",
+      options: [{ label: "JWT" }, { label: "Session" }]
+    },
+    {
+      id: "cache",
+      question: "Which cache strategy?",
+      options: [{ label: "Redis" }, { label: "None" }]
+    }
+  ]
+})
+```
+
+Result example:
+
+```txt
+User answers:
+auth: Session
+cache: Redis
+```
+
+## Interaction Model
+
+| Flow | UI style | Submit behavior |
+|---|---|---|
+| Single + `multi: false` | one-question picker | Enter submits immediately |
+| Single + `multi: true` | tab UI (`Question` + `Submit`) | Submit tab confirms |
+| Multiple questions (mixed allowed) | tab UI (`Q1..Qn` + `Submit`) | Submit tab confirms all |
+
+## Inline Notes (Minimal UI Transitions)
+
+Press `Tab` on any option to edit a note inline on that same row.
+
+- Display format: `Option — note: ...`
+- Editing cursor: `▍`
+- Notes are sanitized for inline display (line breaks/control chars)
+- Narrow-width rendering keeps the edit cursor visible
+
+For `Other`, a note is required to become valid.
+
+## Keyboard Shortcuts
+
+- `↑ / ↓`: move between options
+- `← / →`: switch question tabs
+- `Enter`: select/toggle or submit (on Submit tab)
+- `Tab`: start/stop inline note editing
+- `Esc`: cancel flow
+
+## Tool Schema
 
 ```ts
 {
@@ -65,10 +162,22 @@ cp -R ask-extension.ts src .pi/extensions/ask-tool/
 }
 ```
 
-> `options`에 `Other`는 넣지 마세요. UI가 자동 추가합니다.
+> Do **not** include an `Other` option in `options`. The UI injects it automatically.
 
-## 테스트
+## Development
 
 ```bash
+npm install
 npm test
+npm run typecheck
 ```
+
+## Project Structure
+
+- `ask-extension.ts` - extension entrypoint
+- `src/index.ts` - tool registration and orchestration
+- `src/ask-logic.ts` - selection/result mapping helpers
+- `src/ask-inline-ui.ts` - single-question UI
+- `src/ask-tabs-ui.ts` - tabbed multi-question UI
+- `src/ask-inline-note.ts` - inline note rendering helper
+- `test/*.test.ts` - logic + UI mapping + integration coverage
