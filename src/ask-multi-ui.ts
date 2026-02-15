@@ -2,8 +2,8 @@ import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
 import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import {
 	OTHER_OPTION,
-	addRecommendedSuffix,
-	buildMultiSelection,
+	appendRecommendedTagToOptionLabels,
+	buildMultiSelectionResult,
 	type AskOption,
 	type AskSelection,
 } from "./ask-logic";
@@ -20,35 +20,48 @@ interface MultiSelectionState {
 	notes: string[];
 }
 
-function getInitialIndex(recommended: number | undefined, optionCount: number): number {
-	if (recommended == null || Number.isNaN(recommended)) return 0;
-	if (recommended < 0 || recommended >= optionCount) return 0;
-	return recommended;
+function resolveInitialCursorIndexFromRecommendedOption(
+	recommendedOptionIndex: number | undefined,
+	optionCount: number,
+): number {
+	if (recommendedOptionIndex == null || Number.isNaN(recommendedOptionIndex)) return 0;
+	if (recommendedOptionIndex < 0 || recommendedOptionIndex >= optionCount) return 0;
+	return recommendedOptionIndex;
 }
 
-function snapshot(cancelled: boolean, selected: Set<number>, notes: string[]): MultiSelectionState {
+function createMultiSelectionSnapshot(
+	cancelled: boolean,
+	selectedOptionIndexSet: Set<number>,
+	noteByOptionIndex: string[],
+): MultiSelectionState {
 	return {
 		cancelled,
-		selectedIndexes: Array.from(selected).sort((a, b) => a - b),
-		notes: [...notes],
+		selectedIndexes: Array.from(selectedOptionIndexSet).sort((a, b) => a - b),
+		notes: [...noteByOptionIndex],
 	};
 }
 
 export async function askMultiQuestionWithInlineNote(
 	ui: ExtensionUIContext,
-	q: MultiQuestionInput,
+	questionInput: MultiQuestionInput,
 ): Promise<AskSelection> {
-	const optionLabels = addRecommendedSuffix(q.options.map((option) => option.label), q.recommended);
-	const allOptions = [...optionLabels, OTHER_OPTION];
-	const otherIndex = allOptions.length - 1;
-	const doneIndex = allOptions.length;
+	const optionLabelsWithRecommendedTag = appendRecommendedTagToOptionLabels(
+		questionInput.options.map((option) => option.label),
+		questionInput.recommended,
+	);
+	const selectableOptionLabels = [...optionLabelsWithRecommendedTag, OTHER_OPTION];
+	const otherOptionIndex = selectableOptionLabels.length - 1;
+	const submitRowIndex = selectableOptionLabels.length;
 
 	const result = await ui.custom<MultiSelectionState>((tui, theme, _keybindings, done) => {
-		let cursorIndex = getInitialIndex(q.recommended, allOptions.length);
-		let editMode = false;
-		let cachedLines: string[] | undefined;
-		const selected = new Set<number>();
-		const notes = Array(allOptions.length).fill("") as string[];
+		let cursorRowIndex = resolveInitialCursorIndexFromRecommendedOption(
+			questionInput.recommended,
+			selectableOptionLabels.length,
+		);
+		let isNoteEditorOpen = false;
+		let cachedRenderedLines: string[] | undefined;
+		const selectedOptionIndexSet = new Set<number>();
+		const noteByOptionIndex = Array(selectableOptionLabels.length).fill("") as string[];
 
 		const editorTheme: EditorTheme = {
 			borderColor: (text) => theme.fg("accent", text),
@@ -60,167 +73,169 @@ export async function askMultiQuestionWithInlineNote(
 				noMatch: (text) => theme.fg("warning", text),
 			},
 		};
-		const editor = new Editor(tui, editorTheme);
+		const noteEditor = new Editor(tui, editorTheme);
 
-		const refresh = () => {
-			cachedLines = undefined;
+		const requestUiRerender = () => {
+			cachedRenderedLines = undefined;
 			tui.requestRender();
 		};
 
-		const getNote = (index: number): string => notes[index]?.trim() ?? "";
+		const getTrimmedNoteForOption = (optionIndex: number): string => noteByOptionIndex[optionIndex]?.trim() ?? "";
 
-		const canSubmit = (): boolean => {
-			if (selected.size === 0) return false;
-			if (selected.has(otherIndex) && getNote(otherIndex).length === 0) return false;
+		const canSubmitSelections = (): boolean => {
+			if (selectedOptionIndexSet.size === 0) return false;
+			if (selectedOptionIndexSet.has(otherOptionIndex) && getTrimmedNoteForOption(otherOptionIndex).length === 0) {
+				return false;
+			}
 			return true;
 		};
 
-		const openEditor = () => {
-			if (cursorIndex === doneIndex) return;
-			editMode = true;
-			editor.setText(notes[cursorIndex] ?? "");
-			refresh();
+		const openNoteEditorForCurrentOption = () => {
+			if (cursorRowIndex === submitRowIndex) return;
+			isNoteEditorOpen = true;
+			noteEditor.setText(noteByOptionIndex[cursorRowIndex] ?? "");
+			requestUiRerender();
 		};
 
-		editor.onChange = (value) => {
-			if (cursorIndex < allOptions.length) {
-				notes[cursorIndex] = value;
-				refresh();
+		noteEditor.onChange = (value) => {
+			if (cursorRowIndex < selectableOptionLabels.length) {
+				noteByOptionIndex[cursorRowIndex] = value;
+				requestUiRerender();
 			}
 		};
 
-		editor.onSubmit = (value) => {
-			if (cursorIndex >= allOptions.length) return;
-			notes[cursorIndex] = value;
-			const trimmed = value.trim();
+		noteEditor.onSubmit = (value) => {
+			if (cursorRowIndex >= selectableOptionLabels.length) return;
+			noteByOptionIndex[cursorRowIndex] = value;
+			const trimmedNote = value.trim();
 
-			if (trimmed.length > 0) {
-				selected.add(cursorIndex);
+			if (trimmedNote.length > 0) {
+				selectedOptionIndexSet.add(cursorRowIndex);
 			}
 
-			if (cursorIndex === otherIndex && trimmed.length === 0) {
-				refresh();
+			if (cursorRowIndex === otherOptionIndex && trimmedNote.length === 0) {
+				requestUiRerender();
 				return;
 			}
 
-			editMode = false;
-			refresh();
+			isNoteEditorOpen = false;
+			requestUiRerender();
 		};
 
 		const render = (width: number): string[] => {
-			if (cachedLines) return cachedLines;
+			if (cachedRenderedLines) return cachedRenderedLines;
 
-			const lines: string[] = [];
-			const add = (line: string) => lines.push(truncateToWidth(line, width));
+			const renderedLines: string[] = [];
+			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
 
-			add(theme.fg("accent", "─".repeat(width)));
-			add(theme.fg("text", ` ${q.question}`));
-			add(theme.fg("dim", ` ${selected.size} selected`));
-			lines.push("");
+			addLine(theme.fg("accent", "─".repeat(width)));
+			addLine(theme.fg("text", ` ${questionInput.question}`));
+			addLine(theme.fg("dim", ` ${selectedOptionIndexSet.size} selected`));
+			renderedLines.push("");
 
-			for (let i = 0; i < allOptions.length; i++) {
-				const label = allOptions[i];
-				const isSelected = selected.has(i);
-				const isCursor = i === cursorIndex;
-				const pointer = isCursor ? theme.fg("accent", "→ ") : "  ";
-				const todo = isSelected ? "[x]" : "[ ]";
-				const color = isCursor ? "accent" : isSelected ? "success" : "text";
-				add(`${pointer}${theme.fg(color, `${todo} ${label}`)}`);
+			for (let optionIndex = 0; optionIndex < selectableOptionLabels.length; optionIndex++) {
+				const optionLabel = selectableOptionLabels[optionIndex];
+				const isOptionSelected = selectedOptionIndexSet.has(optionIndex);
+				const isCursorRow = optionIndex === cursorRowIndex;
+				const cursorPrefix = isCursorRow ? theme.fg("accent", "→ ") : "  ";
+				const checkbox = isOptionSelected ? "[x]" : "[ ]";
+				const optionColor = isCursorRow ? "accent" : isOptionSelected ? "success" : "text";
+				addLine(`${cursorPrefix}${theme.fg(optionColor, `${checkbox} ${optionLabel}`)}`);
 
-				const note = getNote(i);
+				const note = getTrimmedNoteForOption(optionIndex);
 				if (note) {
-					add(`   ${theme.fg("muted", `• Note: ${note}`)}`);
+					addLine(`   ${theme.fg("muted", `• Note: ${note}`)}`);
 				}
 			}
 
-			const donePointer = cursorIndex === doneIndex ? theme.fg("accent", "→ ") : "  ";
-			const doneLabel = canSubmit()
+			const submitRowPrefix = cursorRowIndex === submitRowIndex ? theme.fg("accent", "→ ") : "  ";
+			const submitLabel = canSubmitSelections()
 				? "[submit] Done selecting"
 				: "[submit] Done selecting (select options first)";
-			add(`${donePointer}${theme.fg(canSubmit() ? "success" : "warning", doneLabel)}`);
+			addLine(`${submitRowPrefix}${theme.fg(canSubmitSelections() ? "success" : "warning", submitLabel)}`);
 
-			if (selected.has(otherIndex) && getNote(otherIndex).length === 0 && !editMode) {
-				add(theme.fg("warning", " Other is selected. Add a note with Tab before submit."));
+			if (selectedOptionIndexSet.has(otherOptionIndex) && getTrimmedNoteForOption(otherOptionIndex).length === 0 && !isNoteEditorOpen) {
+				addLine(theme.fg("warning", " Other is selected. Add a note with Tab before submit."));
 			}
 
-			lines.push("");
-			if (editMode) {
-				add(theme.fg("muted", " Note (Tab/Esc to return to options):"));
-				for (const line of editor.render(Math.max(10, width - 2))) {
-					add(` ${line}`);
+			renderedLines.push("");
+			if (isNoteEditorOpen) {
+				addLine(theme.fg("muted", " Note (Tab/Esc to return to options):"));
+				for (const line of noteEditor.render(Math.max(10, width - 2))) {
+					addLine(` ${line}`);
 				}
-				lines.push("");
-				add(theme.fg("dim", " Enter save note • Tab/Esc back"));
+				renderedLines.push("");
+				addLine(theme.fg("dim", " Enter save note • Tab/Esc back"));
 			} else {
-				add(theme.fg("dim", " ↑↓ move • Enter toggle/select • Tab add note • Esc cancel"));
+				addLine(theme.fg("dim", " ↑↓ move • Enter toggle/select • Tab add note • Esc cancel"));
 			}
 
-			add(theme.fg("accent", "─".repeat(width)));
-			cachedLines = lines;
-			return lines;
+			addLine(theme.fg("accent", "─".repeat(width)));
+			cachedRenderedLines = renderedLines;
+			return renderedLines;
 		};
 
 		const handleInput = (data: string) => {
-			if (editMode) {
+			if (isNoteEditorOpen) {
 				if (matchesKey(data, Key.tab) || matchesKey(data, Key.escape)) {
-					editMode = false;
-					refresh();
+					isNoteEditorOpen = false;
+					requestUiRerender();
 					return;
 				}
-				editor.handleInput(data);
-				refresh();
+				noteEditor.handleInput(data);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.up)) {
-				cursorIndex = Math.max(0, cursorIndex - 1);
-				refresh();
+				cursorRowIndex = Math.max(0, cursorRowIndex - 1);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.down)) {
-				cursorIndex = Math.min(doneIndex, cursorIndex + 1);
-				refresh();
+				cursorRowIndex = Math.min(submitRowIndex, cursorRowIndex + 1);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.tab)) {
-				openEditor();
+				openNoteEditorForCurrentOption();
 				return;
 			}
 
 			if (matchesKey(data, Key.enter)) {
-				if (cursorIndex === doneIndex) {
-					if (canSubmit()) {
-						done(snapshot(false, selected, notes));
+				if (cursorRowIndex === submitRowIndex) {
+					if (canSubmitSelections()) {
+						done(createMultiSelectionSnapshot(false, selectedOptionIndexSet, noteByOptionIndex));
 					}
 					return;
 				}
 
-				if (selected.has(cursorIndex)) {
-					selected.delete(cursorIndex);
-					refresh();
+				if (selectedOptionIndexSet.has(cursorRowIndex)) {
+					selectedOptionIndexSet.delete(cursorRowIndex);
+					requestUiRerender();
 					return;
 				}
 
-				selected.add(cursorIndex);
-				if (cursorIndex === otherIndex && getNote(cursorIndex).length === 0) {
-					openEditor();
+				selectedOptionIndexSet.add(cursorRowIndex);
+				if (cursorRowIndex === otherOptionIndex && getTrimmedNoteForOption(cursorRowIndex).length === 0) {
+					openNoteEditorForCurrentOption();
 					return;
 				}
-				refresh();
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.escape)) {
-				done(snapshot(true, selected, notes));
+				done(createMultiSelectionSnapshot(true, selectedOptionIndexSet, noteByOptionIndex));
 			}
 		};
 
 		return {
 			render,
 			invalidate: () => {
-				cachedLines = undefined;
+				cachedRenderedLines = undefined;
 			},
 			handleInput,
 		};
@@ -230,5 +245,10 @@ export async function askMultiQuestionWithInlineNote(
 		return { selectedOptions: [] };
 	}
 
-	return buildMultiSelection(allOptions, result.selectedIndexes, result.notes, otherIndex);
+	return buildMultiSelectionResult(
+		selectableOptionLabels,
+		result.selectedIndexes,
+		result.notes,
+		otherOptionIndex,
+	);
 }

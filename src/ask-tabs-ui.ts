@@ -2,8 +2,8 @@ import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
 import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import {
 	OTHER_OPTION,
-	addRecommendedSuffix,
-	buildSingleSelection,
+	appendRecommendedTagToOptionLabels,
+	buildSingleSelectionResult,
 	type AskQuestion,
 	type AskSelection,
 } from "./ask-logic";
@@ -54,7 +54,7 @@ export async function askQuestionsWithTabs(
 ): Promise<{ cancelled: boolean; selections: AskSelection[] }> {
 	const prepared: PreparedQuestion[] = questions.map((q, index) => {
 		const optionLabels = q.options.map((option) => option.label);
-		const options = [...addRecommendedSuffix(optionLabels, q.recommended), OTHER_OPTION];
+		const options = [...appendRecommendedTagToOptionLabels(optionLabels, q.recommended), OTHER_OPTION];
 		return {
 			id: q.id,
 			question: q.question,
@@ -185,7 +185,7 @@ export async function askQuestionsWithTabs(
 				for (let i = 0; i < prepared.length; i++) {
 					const optionLabel = getSelectedOption(i);
 					const note = getNote(i);
-					const combined = buildSingleSelection(optionLabel, note);
+					const combined = buildSingleSelectionResult(optionLabel, note);
 					const value = combined.customInput ?? combined.selectedOptions[0] ?? "(not answered)";
 					const status = isAnswerValid(i) ? theme.fg("success", "●") : theme.fg("warning", "○");
 					add(` ${status} ${theme.fg("muted", `${prepared[i].tabLabel}:`)} ${theme.fg("text", value)}`);
@@ -326,7 +326,7 @@ export async function askQuestionsWithTabs(
 		}
 		const selectedOption = q.options[result.selectedIndexes[index]];
 		const note = result.notes[index];
-		return buildSingleSelection(selectedOption, note);
+		return buildSingleSelectionResult(selectedOption, note);
 	});
 
 	return { cancelled: result.cancelled, selections };

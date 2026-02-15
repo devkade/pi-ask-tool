@@ -2,8 +2,8 @@ import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
 import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import {
 	OTHER_OPTION,
-	addRecommendedSuffix,
-	buildSingleSelection,
+	appendRecommendedTagToOptionLabels,
+	buildSingleSelectionResult,
 	type AskOption,
 	type AskSelection,
 } from "./ask-logic";
@@ -20,26 +20,35 @@ interface InlineSelectionResult {
 	note?: string;
 }
 
-function getInitialIndex(recommended: number | undefined, optionCount: number): number {
-	if (recommended == null) return 0;
-	if (recommended < 0 || recommended >= optionCount) return 0;
-	return recommended;
+function resolveInitialCursorIndexFromRecommendedOption(
+	recommendedOptionIndex: number | undefined,
+	optionCount: number,
+): number {
+	if (recommendedOptionIndex == null) return 0;
+	if (recommendedOptionIndex < 0 || recommendedOptionIndex >= optionCount) return 0;
+	return recommendedOptionIndex;
 }
 
 export async function askSingleQuestionWithInlineNote(
 	ui: ExtensionUIContext,
-	q: SingleQuestionInput,
+	questionInput: SingleQuestionInput,
 ): Promise<AskSelection> {
-	const baseOptions = q.options.map((option) => option.label);
-	const optionLabels = addRecommendedSuffix(baseOptions, q.recommended);
-	const allOptions = [...optionLabels, OTHER_OPTION];
-	const initialIndex = getInitialIndex(q.recommended, optionLabels.length);
+	const baseOptionLabels = questionInput.options.map((option) => option.label);
+	const optionLabelsWithRecommendedTag = appendRecommendedTagToOptionLabels(
+		baseOptionLabels,
+		questionInput.recommended,
+	);
+	const selectableOptionLabels = [...optionLabelsWithRecommendedTag, OTHER_OPTION];
+	const initialCursorIndex = resolveInitialCursorIndexFromRecommendedOption(
+		questionInput.recommended,
+		optionLabelsWithRecommendedTag.length,
+	);
 
 	const result = await ui.custom<InlineSelectionResult>((tui, theme, _keybindings, done) => {
-		let selectedIndex = initialIndex;
-		let editMode = false;
-		let cachedLines: string[] | undefined;
-		const notes = new Map<number, string>();
+		let cursorOptionIndex = initialCursorIndex;
+		let isNoteEditorOpen = false;
+		let cachedRenderedLines: string[] | undefined;
+		const noteByOptionIndex = new Map<number, string>();
 
 		const editorTheme: EditorTheme = {
 			borderColor: (text) => theme.fg("accent", text),
@@ -51,134 +60,134 @@ export async function askSingleQuestionWithInlineNote(
 				noMatch: (text) => theme.fg("warning", text),
 			},
 		};
-		const editor = new Editor(tui, editorTheme);
+		const noteEditor = new Editor(tui, editorTheme);
 
-		const refresh = () => {
-			cachedLines = undefined;
+		const requestUiRerender = () => {
+			cachedRenderedLines = undefined;
 			tui.requestRender();
 		};
 
-		const getNote = (index: number): string => notes.get(index) ?? "";
-		const getTrimmedNote = (index: number): string => getNote(index).trim();
+		const getRawNoteForOption = (optionIndex: number): string => noteByOptionIndex.get(optionIndex) ?? "";
+		const getTrimmedNoteForOption = (optionIndex: number): string => getRawNoteForOption(optionIndex).trim();
 
-		const loadEditorText = () => {
-			editor.setText(getNote(selectedIndex));
+		const loadCurrentNoteIntoEditor = () => {
+			noteEditor.setText(getRawNoteForOption(cursorOptionIndex));
 		};
 
-		const saveEditorText = (value: string) => {
-			notes.set(selectedIndex, value);
+		const saveCurrentNoteFromEditor = (value: string) => {
+			noteByOptionIndex.set(cursorOptionIndex, value);
 		};
 
-		const submitSelection = (optionLabel: string, note: string) => {
+		const submitCurrentSelection = (selectedOptionLabel: string, note: string) => {
 			done({
 				cancelled: false,
-				selectedOption: optionLabel,
+				selectedOption: selectedOptionLabel,
 				note,
 			});
 		};
 
-		editor.onChange = (value) => {
-			saveEditorText(value);
-			refresh();
+		noteEditor.onChange = (value) => {
+			saveCurrentNoteFromEditor(value);
+			requestUiRerender();
 		};
 
-		editor.onSubmit = (value) => {
-			saveEditorText(value);
-			const selectedOption = allOptions[selectedIndex];
-			const note = value.trim();
+		noteEditor.onSubmit = (value) => {
+			saveCurrentNoteFromEditor(value);
+			const selectedOptionLabel = selectableOptionLabels[cursorOptionIndex];
+			const trimmedNote = value.trim();
 
-			if (selectedOption === OTHER_OPTION && !note) {
-				refresh();
+			if (selectedOptionLabel === OTHER_OPTION && !trimmedNote) {
+				requestUiRerender();
 				return;
 			}
 
-			submitSelection(selectedOption, note);
+			submitCurrentSelection(selectedOptionLabel, trimmedNote);
 		};
 
 		const render = (width: number): string[] => {
-			if (cachedLines) return cachedLines;
+			if (cachedRenderedLines) return cachedRenderedLines;
 
-			const lines: string[] = [];
-			const add = (line: string) => lines.push(truncateToWidth(line, width));
+			const renderedLines: string[] = [];
+			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
 
-			add(theme.fg("accent", "─".repeat(width)));
-			add(theme.fg("text", ` ${q.question}`));
-			lines.push("");
+			addLine(theme.fg("accent", "─".repeat(width)));
+			addLine(theme.fg("text", ` ${questionInput.question}`));
+			renderedLines.push("");
 
-			for (let i = 0; i < allOptions.length; i++) {
-				const optionLabel = allOptions[i];
-				const selected = i === selectedIndex;
-				const prefix = selected ? theme.fg("accent", "→ ") : "  ";
-				const bullet = selected ? "●" : "○";
-				const color = selected ? "accent" : "text";
-				add(`${prefix}${theme.fg(color, `${bullet} ${optionLabel}`)}`);
+			for (let optionIndex = 0; optionIndex < selectableOptionLabels.length; optionIndex++) {
+				const optionLabel = selectableOptionLabels[optionIndex];
+				const isCursorOption = optionIndex === cursorOptionIndex;
+				const cursorPrefix = isCursorOption ? theme.fg("accent", "→ ") : "  ";
+				const bullet = isCursorOption ? "●" : "○";
+				const optionColor = isCursorOption ? "accent" : "text";
+				addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabel}`)}`);
 			}
 
-			const currentNote = getTrimmedNote(selectedIndex);
-			lines.push("");
+			const currentNote = getTrimmedNoteForOption(cursorOptionIndex);
+			renderedLines.push("");
 
-			if (editMode) {
-				add(theme.fg("muted", " Note (Tab/Esc to return to options):"));
-				for (const line of editor.render(width - 2)) {
-					add(` ${line}`);
+			if (isNoteEditorOpen) {
+				addLine(theme.fg("muted", " Note (Tab/Esc to return to options):"));
+				for (const line of noteEditor.render(width - 2)) {
+					addLine(` ${line}`);
 				}
-				lines.push("");
-				add(theme.fg("dim", " Enter submit • Tab/Esc back"));
+				renderedLines.push("");
+				addLine(theme.fg("dim", " Enter submit • Tab/Esc back"));
 			} else if (currentNote) {
-				add(theme.fg("muted", ` Note: ${currentNote}`));
-				lines.push("");
-				add(theme.fg("dim", " ↑↓ move • Enter submit • Tab edit note • Esc cancel"));
+				addLine(theme.fg("muted", ` Note: ${currentNote}`));
+				renderedLines.push("");
+				addLine(theme.fg("dim", " ↑↓ move • Enter submit • Tab edit note • Esc cancel"));
 			} else {
-				add(theme.fg("dim", " ↑↓ move • Enter submit • Tab add note • Esc cancel"));
+				addLine(theme.fg("dim", " ↑↓ move • Enter submit • Tab add note • Esc cancel"));
 			}
 
-			add(theme.fg("accent", "─".repeat(width)));
-			cachedLines = lines;
-			return lines;
+			addLine(theme.fg("accent", "─".repeat(width)));
+			cachedRenderedLines = renderedLines;
+			return renderedLines;
 		};
 
 		const handleInput = (data: string) => {
-			if (editMode) {
+			if (isNoteEditorOpen) {
 				if (matchesKey(data, Key.tab) || matchesKey(data, Key.escape)) {
-					editMode = false;
-					refresh();
+					isNoteEditorOpen = false;
+					requestUiRerender();
 					return;
 				}
-				editor.handleInput(data);
-				refresh();
+				noteEditor.handleInput(data);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.up)) {
-				selectedIndex = Math.max(0, selectedIndex - 1);
-				refresh();
+				cursorOptionIndex = Math.max(0, cursorOptionIndex - 1);
+				requestUiRerender();
 				return;
 			}
 			if (matchesKey(data, Key.down)) {
-				selectedIndex = Math.min(allOptions.length - 1, selectedIndex + 1);
-				refresh();
+				cursorOptionIndex = Math.min(selectableOptionLabels.length - 1, cursorOptionIndex + 1);
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.tab)) {
-				editMode = true;
-				loadEditorText();
-				refresh();
+				isNoteEditorOpen = true;
+				loadCurrentNoteIntoEditor();
+				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.enter)) {
-				const selectedOption = allOptions[selectedIndex];
-				const note = getTrimmedNote(selectedIndex);
+				const selectedOptionLabel = selectableOptionLabels[cursorOptionIndex];
+				const trimmedNote = getTrimmedNoteForOption(cursorOptionIndex);
 
-				if (selectedOption === OTHER_OPTION && !note) {
-					editMode = true;
-					loadEditorText();
-					refresh();
+				if (selectedOptionLabel === OTHER_OPTION && !trimmedNote) {
+					isNoteEditorOpen = true;
+					loadCurrentNoteIntoEditor();
+					requestUiRerender();
 					return;
 				}
 
-				submitSelection(selectedOption, note);
+				submitCurrentSelection(selectedOptionLabel, trimmedNote);
 				return;
 			}
 
@@ -190,7 +199,7 @@ export async function askSingleQuestionWithInlineNote(
 		return {
 			render,
 			invalidate: () => {
-				cachedLines = undefined;
+				cachedRenderedLines = undefined;
 			},
 			handleInput,
 		};
@@ -200,5 +209,5 @@ export async function askSingleQuestionWithInlineNote(
 		return { selectedOptions: [] };
 	}
 
-	return buildSingleSelection(result.selectedOption, result.note);
+	return buildSingleSelectionResult(result.selectedOption, result.note);
 }
