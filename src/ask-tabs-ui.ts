@@ -8,6 +8,7 @@ import {
 	type AskQuestion,
 	type AskSelection,
 } from "./ask-logic";
+import { buildOptionLabelWithInlineNote } from "./ask-inline-note";
 
 interface PreparedQuestion {
 	id: string;
@@ -316,35 +317,33 @@ export async function askQuestionsWithTabs(
 			addLine(theme.fg("text", ` ${preparedQuestion.question}`));
 			renderedLines.push("");
 
+			const maxInlineLabelLength = Math.max(12, width - 8);
 			for (let optionIndex = 0; optionIndex < preparedQuestion.options.length; optionIndex++) {
 				const optionLabel = preparedQuestion.options[optionIndex];
 				const isCursorOption = optionIndex === cursorOptionIndex;
 				const isOptionSelected = selectedOptionIndexes.includes(optionIndex);
+				const isEditingThisOption = isNoteEditorOpen && isCursorOption;
+				const optionLabelWithInlineNote = buildOptionLabelWithInlineNote(
+					optionLabel,
+					getQuestionNote(questionIndex, optionIndex),
+					isEditingThisOption,
+					maxInlineLabelLength,
+				);
 				const cursorPrefix = isCursorOption ? theme.fg("accent", "→ ") : "  ";
 				if (preparedQuestion.multi) {
 					const checkbox = isOptionSelected ? "[x]" : "[ ]";
 					const optionColor = isCursorOption ? "accent" : isOptionSelected ? "success" : "text";
-					addLine(`${cursorPrefix}${theme.fg(optionColor, `${checkbox} ${optionLabel}`)}`);
+					addLine(`${cursorPrefix}${theme.fg(optionColor, `${checkbox} ${optionLabelWithInlineNote}`)}`);
 				} else {
 					const bullet = isOptionSelected ? "●" : "○";
 					const optionColor = isCursorOption ? "accent" : isOptionSelected ? "success" : "text";
-					addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabel}`)}`);
-				}
-
-				const note = getTrimmedQuestionNote(questionIndex, optionIndex);
-				if (note) {
-					addLine(`   ${theme.fg("muted", `• Note: ${note}`)}`);
+					addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabelWithInlineNote}`)}`);
 				}
 			}
 
 			renderedLines.push("");
 			if (isNoteEditorOpen) {
-				addLine(theme.fg("muted", " Note (Tab/Esc to return to options):"));
-				for (const line of noteEditor.render(Math.max(10, width - 2))) {
-					addLine(` ${line}`);
-				}
-				renderedLines.push("");
-				addLine(theme.fg("dim", " Enter save note • Tab/Esc back"));
+				addLine(theme.fg("dim", " Typing note inline • Enter save note • Tab/Esc stop editing"));
 			} else {
 				if (preparedQuestion.multi) {
 					addLine(

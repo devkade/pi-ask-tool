@@ -5,6 +5,7 @@ import {
 	buildMultiSelectionResult,
 	buildSingleSelectionResult,
 } from "../src/ask-logic";
+import { buildOptionLabelWithInlineNote } from "../src/ask-inline-note";
 
 describe("appendRecommendedTagToOptionLabels", () => {
 	it("adds recommended tag only for a valid index", () => {
@@ -74,5 +75,46 @@ describe("buildMultiSelectionResult", () => {
 			selectedOptions: ["JWT"],
 			customInput: "organization-sso",
 		});
+	});
+});
+
+describe("buildOptionLabelWithInlineNote", () => {
+	it("returns base option when there is no note and not editing", () => {
+		expect(buildOptionLabelWithInlineNote("JWT", "", false)).toBe("JWT");
+	});
+
+	it("shows saved note inline without changing layout", () => {
+		expect(buildOptionLabelWithInlineNote("Session", "split-session", false)).toBe(
+			"Session — note: split-session",
+		);
+	});
+
+	it("sanitizes multiline/control note characters for inline display", () => {
+		expect(buildOptionLabelWithInlineNote("Session", "line1\nline2\t\u0007", false)).toBe(
+			"Session — note: line1 line2",
+		);
+	});
+
+	it("keeps cursor visible when inline label is constrained", () => {
+		const label = buildOptionLabelWithInlineNote("Session", "0123456789abcdef", true, 24);
+		expect(label.endsWith("▍")).toBe(true);
+		expect(label.length).toBeLessThanOrEqual(24);
+		expect(label.includes("…")).toBe(true);
+	});
+
+	it("keeps cursor visible for long base label in narrow width", () => {
+		const label = buildOptionLabelWithInlineNote("Other (type your own)", "", true, 22);
+		expect(label.endsWith("▍")).toBe(true);
+		expect(label.length).toBeLessThanOrEqual(22);
+		expect(label.includes("…")).toBe(true);
+	});
+
+	it("shows editing cursor inline when editing note", () => {
+		expect(buildOptionLabelWithInlineNote("Session", "split-session", true)).toBe(
+			"Session — note: split-session▍",
+		);
+		expect(buildOptionLabelWithInlineNote("Other (type your own)", "", true)).toBe(
+			"Other (type your own) — note: ▍",
+		);
 	});
 });

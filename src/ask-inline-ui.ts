@@ -7,6 +7,7 @@ import {
 	type AskOption,
 	type AskSelection,
 } from "./ask-logic";
+import { buildOptionLabelWithInlineNote } from "./ask-inline-note";
 
 interface SingleQuestionInput {
 	question: string;
@@ -114,28 +115,28 @@ export async function askSingleQuestionWithInlineNote(
 			addLine(theme.fg("text", ` ${questionInput.question}`));
 			renderedLines.push("");
 
+			const maxInlineLabelLength = Math.max(12, width - 6);
 			for (let optionIndex = 0; optionIndex < selectableOptionLabels.length; optionIndex++) {
 				const optionLabel = selectableOptionLabels[optionIndex];
 				const isCursorOption = optionIndex === cursorOptionIndex;
+				const isEditingThisOption = isNoteEditorOpen && isCursorOption;
+				const optionLabelWithInlineNote = buildOptionLabelWithInlineNote(
+					optionLabel,
+					getRawNoteForOption(optionIndex),
+					isEditingThisOption,
+					maxInlineLabelLength,
+				);
 				const cursorPrefix = isCursorOption ? theme.fg("accent", "→ ") : "  ";
 				const bullet = isCursorOption ? "●" : "○";
 				const optionColor = isCursorOption ? "accent" : "text";
-				addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabel}`)}`);
+				addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabelWithInlineNote}`)}`);
 			}
 
-			const currentNote = getTrimmedNoteForOption(cursorOptionIndex);
 			renderedLines.push("");
 
 			if (isNoteEditorOpen) {
-				addLine(theme.fg("muted", " Note (Tab/Esc to return to options):"));
-				for (const line of noteEditor.render(width - 2)) {
-					addLine(` ${line}`);
-				}
-				renderedLines.push("");
-				addLine(theme.fg("dim", " Enter submit • Tab/Esc back"));
-			} else if (currentNote) {
-				addLine(theme.fg("muted", ` Note: ${currentNote}`));
-				renderedLines.push("");
+				addLine(theme.fg("dim", " Typing note inline • Enter submit • Tab/Esc stop editing"));
+			} else if (getTrimmedNoteForOption(cursorOptionIndex).length > 0) {
 				addLine(theme.fg("dim", " ↑↓ move • Enter submit • Tab edit note • Esc cancel"));
 			} else {
 				addLine(theme.fg("dim", " ↑↓ move • Enter submit • Tab add note • Esc cancel"));
