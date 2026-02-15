@@ -127,6 +127,44 @@ describe("ask extension tool", () => {
 		});
 	});
 
+	it("returns cancelled for single multi question when tab flow is cancelled", async () => {
+		const tool = createAskTool();
+		const result = await tool.execute(
+			"call-4b",
+			{
+				questions: [
+					{
+						id: "auth",
+						question: "Which auth methods?",
+						options: [{ label: "JWT" }, { label: "Session" }],
+						multi: true,
+					},
+				],
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: true,
+				ui: uiWithCustomQueue([
+					{
+						cancelled: true,
+						selectedOptionIndexesByQuestion: [[0, 2]],
+						noteByQuestionByOption: [["", "", "org-sso"]],
+					},
+				]),
+			} as any,
+		);
+
+		expect((result.content[0] as any).text).toBe("User cancelled the selection");
+		expect(result.details).toEqual({
+			question: "Which auth methods?",
+			options: ["JWT", "Session"],
+			multi: true,
+			selectedOptions: [],
+			customInput: undefined,
+		});
+	});
+
 	it("uses tabbed flow for multiple single-select questions", async () => {
 		const tool = createAskTool();
 		const result = await tool.execute(
@@ -229,6 +267,60 @@ describe("ask extension tool", () => {
 				options: ["Redis", "None"],
 				multi: false,
 				selectedOptions: ["Redis - local"],
+				customInput: undefined,
+			},
+		]);
+	});
+
+	it("returns cancelled markers for all questions when tab flow is cancelled", async () => {
+		const tool = createAskTool();
+		const result = await tool.execute(
+			"call-6b",
+			{
+				questions: [
+					{
+						id: "auth",
+						question: "Which auth methods?",
+						options: [{ label: "JWT" }, { label: "Session" }],
+						multi: true,
+					},
+					{
+						id: "cache",
+						question: "Which cache?",
+						options: [{ label: "Redis" }, { label: "None" }],
+					},
+				],
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: true,
+				ui: uiWithCustomQueue([
+					{
+						cancelled: true,
+						selectedOptionIndexesByQuestion: [[1], [0]],
+						noteByQuestionByOption: [["", ""], ["local", ""]],
+					},
+				]),
+			} as any,
+		);
+
+		expect((result.content[0] as any).text).toBe("User answers:\nauth: (cancelled)\ncache: (cancelled)");
+		expect(result.details?.results).toEqual([
+			{
+				id: "auth",
+				question: "Which auth methods?",
+				options: ["JWT", "Session"],
+				multi: true,
+				selectedOptions: [],
+				customInput: undefined,
+			},
+			{
+				id: "cache",
+				question: "Which cache?",
+				options: ["Redis", "None"],
+				multi: false,
+				selectedOptions: [],
 				customInput: undefined,
 			},
 		]);

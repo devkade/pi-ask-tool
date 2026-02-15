@@ -24,6 +24,28 @@ interface TabsUIState {
 	noteByQuestionByOption: string[][];
 }
 
+export function formatSelectionForSubmitReview(selection: AskSelection, isMulti: boolean): string {
+	const hasSelectedOptions = selection.selectedOptions.length > 0;
+	const hasCustomInput = Boolean(selection.customInput);
+
+	if (hasSelectedOptions && hasCustomInput) {
+		const selectedPart = isMulti
+			? `[${selection.selectedOptions.join(", ")}]`
+			: selection.selectedOptions[0];
+		return `${selectedPart} + Other: ${selection.customInput}`;
+	}
+
+	if (hasCustomInput) {
+		return `Other: ${selection.customInput}`;
+	}
+
+	if (hasSelectedOptions) {
+		return isMulti ? `[${selection.selectedOptions.join(", ")}]` : selection.selectedOptions[0];
+	}
+
+	return "(not answered)";
+}
+
 function clampIndex(index: number | undefined, maxExclusive: number): number {
 	if (index == null || Number.isNaN(index) || maxExclusive <= 0) return 0;
 	if (index < 0) return 0;
@@ -256,13 +278,7 @@ export async function askQuestionsWithTabs(
 					selectedOptionIndexesByQuestion[questionIndex],
 					noteByQuestionByOption[questionIndex],
 				);
-				const value =
-					selection.customInput ??
-					(selection.selectedOptions.length > 0
-						? preparedQuestion.multi
-							? `[${selection.selectedOptions.join(", ")}]`
-							: selection.selectedOptions[0]
-						: "(not answered)");
+				const value = formatSelectionForSubmitReview(selection, preparedQuestion.multi);
 				const isValid = isQuestionSelectionValid(
 					preparedQuestion,
 					selectedOptionIndexesByQuestion[questionIndex],
@@ -475,6 +491,13 @@ export async function askQuestionsWithTabs(
 			handleInput,
 		};
 	});
+
+	if (result.cancelled) {
+		return {
+			cancelled: true,
+			selections: preparedQuestions.map(() => ({ selectedOptions: [] } satisfies AskSelection)),
+		};
+	}
 
 	const selections = preparedQuestions.map((preparedQuestion, questionIndex) =>
 		buildSelectionForQuestion(

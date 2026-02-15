@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
 import { OTHER_OPTION, type AskQuestion } from "../src/ask-logic";
 import { askSingleQuestionWithInlineNote } from "../src/ask-inline-ui";
-import { askQuestionsWithTabs } from "../src/ask-tabs-ui";
+import { askQuestionsWithTabs, formatSelectionForSubmitReview } from "../src/ask-tabs-ui";
 
 function uiWithCustomResult<T>(result: T): ExtensionUIContext {
 	return {
@@ -51,6 +51,22 @@ describe("askSingleQuestionWithInlineNote", () => {
 		});
 
 		expect(result).toEqual({ selectedOptions: [] });
+	});
+});
+
+describe("formatSelectionForSubmitReview", () => {
+	it("shows both selected options and custom input for multi selection", () => {
+		const text = formatSelectionForSubmitReview(
+			{ selectedOptions: ["JWT", "Session"], customInput: "org-sso" },
+			true,
+		);
+
+		expect(text).toBe("[JWT, Session] + Other: org-sso");
+	});
+
+	it("shows custom input only when no selected options exist", () => {
+		const text = formatSelectionForSubmitReview({ selectedOptions: [], customInput: "custom-only" }, true);
+		expect(text).toBe("Other: custom-only");
 	});
 });
 
@@ -136,6 +152,35 @@ describe("askQuestionsWithTabs", () => {
 		expect(result).toEqual({
 			cancelled: false,
 			selections: [{ selectedOptions: ["Session - stateful"] }],
+		});
+	});
+
+	it("returns empty selections when tab flow is cancelled", async () => {
+		const questions: AskQuestion[] = [
+			{
+				id: "auth",
+				question: "Which auth methods?",
+				options: [{ label: "JWT" }, { label: "Session" }],
+				multi: true,
+			},
+			{
+				id: "cache",
+				question: "Which cache?",
+				options: [{ label: "Redis" }, { label: "None" }],
+			},
+		];
+
+		const ui = uiWithCustomResult({
+			cancelled: true,
+			selectedOptionIndexesByQuestion: [[0, 2], [1]],
+			noteByQuestionByOption: [["", "", "org-sso"], ["", "local"]],
+		});
+
+		const result = await askQuestionsWithTabs(ui, questions);
+
+		expect(result).toEqual({
+			cancelled: true,
+			selections: [{ selectedOptions: [] }, { selectedOptions: [] }],
 		});
 	});
 });
