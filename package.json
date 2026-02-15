@@ -2,6 +2,14 @@
   "name": "pi-ask-tool-extension",
   "version": "0.1.0",
   "description": "Ask tool extension for pi with tabbed questioning and inline note editing",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devkade/pi-ask-tool.git"
+  },
+  "homepage": "https://github.com/devkade/pi-ask-tool#readme",
+  "bugs": {
+    "url": "https://github.com/devkade/pi-ask-tool/issues"
+  },
   "type": "module",
   "keywords": [
     "pi-package"
