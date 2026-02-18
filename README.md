@@ -68,7 +68,17 @@ ask({
 Result example:
 
 ```txt
-User selected: Session
+User answers:
+auth: Session
+
+Answer context:
+Question 1 (auth)
+Prompt: Which auth approach?
+Options:
+  1. JWT
+  2. Session
+Response:
+  Selected: Session
 ```
 
 ### Single question (multi-select)
@@ -89,7 +99,18 @@ ask({
 Result example:
 
 ```txt
-User selected: Logging, Metrics
+User answers:
+features: [Logging, Metrics]
+
+Answer context:
+Question 1 (features)
+Prompt: Which features should be enabled?
+Options:
+  1. Logging
+  2. Metrics
+  3. Tracing
+Response:
+  Selected: [Logging, Metrics]
 ```
 
 ### Multi-question (tab flow)
@@ -117,6 +138,23 @@ Result example:
 User answers:
 auth: Session
 cache: Redis
+
+Answer context:
+Question 1 (auth)
+Prompt: Which auth approach?
+Options:
+  1. JWT
+  2. Session
+Response:
+  Selected: Session
+
+Question 2 (cache)
+Prompt: Which cache strategy?
+Options:
+  1. Redis
+  2. None
+Response:
+  Selected: Redis
 ```
 
 ## Interaction Model
@@ -168,9 +206,21 @@ For `Other`, a note is required to become valid.
 
 ```bash
 npm install
-npm test
-npm run typecheck
+npm run check
 ```
+
+`npm run check` runs:
+
+- TypeScript checks (`npm run typecheck`)
+- Test suite with coverage (`npm run test:coverage`)
+- Coverage gate (`npm run coverage:check`)
+
+Coverage gate defaults (override via env vars in CI if needed):
+
+- Overall: lines >= 38%, functions >= 80%
+- `src/index.ts`: lines >= 95%, functions >= 100%
+- `src/ask-logic.ts`: lines >= 95%, functions >= 100%
+- `src/ask-inline-note.ts`: lines >= 80%, functions >= 70%
 
 ## Project Structure
 

@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
-import type { AskQuestion } from "./ask-logic";
+import { OTHER_OPTION, type AskQuestion } from "./ask-logic";
 import { askSingleQuestionWithInlineNote } from "./ask-inline-ui";
 import { askQuestionsWithTabs } from "./ask-tabs-ui";
 
@@ -37,6 +37,7 @@ interface QuestionResult {
 }
 
 interface AskToolDetails {
+	id?: string;
 	question?: string;
 	options?: string[];
 	multi?: boolean;
@@ -45,16 +46,106 @@ interface AskToolDetails {
 	results?: QuestionResult[];
 }
 
+function sanitizeForSessionText(value: string): string {
+	return value
+		.replace(/[\r\n\t]/g, " ")
+		.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+		.replace(/\s{2,}/g, " ")
+		.trim();
+}
+
+function sanitizeOptionForSessionText(option: string): string {
+	const sanitizedOption = sanitizeForSessionText(option);
+	return sanitizedOption.length > 0 ? sanitizedOption : "(empty option)";
+}
+
+function toSessionSafeQuestionResult(result: QuestionResult): QuestionResult {
+	const selectedOptions = result.selectedOptions
+		.map((selectedOption) => sanitizeForSessionText(selectedOption))
+		.filter((selectedOption) => selectedOption.length > 0);
+
+	const rawCustomInput = result.customInput;
+	const customInput = rawCustomInput == null ? undefined : sanitizeForSessionText(rawCustomInput);
+
+	return {
+		id: sanitizeForSessionText(result.id) || "(unknown)",
+		question: sanitizeForSessionText(result.question) || "(empty question)",
+		options: result.options.map(sanitizeOptionForSessionText),
+		multi: result.multi,
+		selectedOptions,
+		customInput: customInput && customInput.length > 0 ? customInput : undefined,
+	};
+}
+
+function formatSelectionForSummary(result: QuestionResult): string {
+	const hasSelectedOptions = result.selectedOptions.length > 0;
+	const hasCustomInput = Boolean(result.customInput);
+
+	if (!hasSelectedOptions && !hasCustomInput) {
+		return "(cancelled)";
+	}
+
+	if (hasSelectedOptions && hasCustomInput) {
+		const selectedPart = result.multi
+			? `[${result.selectedOptions.join(", ")}]`
+			: result.selectedOptions[0];
+		return `${selectedPart} + Other: "${result.customInput}"`;
+	}
+
+	if (hasCustomInput) {
+		return `"${result.customInput}"`;
+	}
+
+	if (result.multi) {
+		return `[${result.selectedOptions.join(", ")}]`;
+	}
+
+	return result.selectedOptions[0];
+}
+
 function formatQuestionResult(result: QuestionResult): string {
-	if (result.customInput) {
-		return `${result.id}: \"${result.customInput}\"`;
+	return `${result.id}: ${formatSelectionForSummary(result)}`;
+}
+
+function formatQuestionContext(result: QuestionResult, questionIndex: number): string {
+	const lines: string[] = [
+		`Question ${questionIndex + 1} (${result.id})`,
+		`Prompt: ${result.question}`,
+		"Options:",
+		...result.options.map((option, optionIndex) => `  ${optionIndex + 1}. ${option}`),
+		"Response:",
+	];
+
+	const hasSelectedOptions = result.selectedOptions.length > 0;
+	const hasCustomInput = Boolean(result.customInput);
+
+	if (!hasSelectedOptions && !hasCustomInput) {
+		lines.push("  Selected: (cancelled)");
+		return lines.join("\n");
 	}
-	if (result.selectedOptions.length > 0) {
-		return result.multi
-			? `${result.id}: [${result.selectedOptions.join(", ")}]`
-			: `${result.id}: ${result.selectedOptions[0]}`;
+
+	if (hasSelectedOptions) {
+		const selectedText = result.multi
+			? `[${result.selectedOptions.join(", ")}]`
+			: result.selectedOptions[0];
+		lines.push(`  Selected: ${selectedText}`);
 	}
-	return `${result.id}: (cancelled)`;
+
+	if (hasCustomInput) {
+		if (!hasSelectedOptions) {
+			lines.push(`  Selected: ${OTHER_OPTION}`);
+		}
+		lines.push(`  Custom input: ${result.customInput}`);
+	}
+
+	return lines.join("\n");
+}
+
+function buildAskSessionContent(results: QuestionResult[]): string {
+	const safeResults = results.map(toSessionSafeQuestionResult);
+	const summaryLines = safeResults.map(formatQuestionResult).join("\n");
+	const contextBlocks = safeResults.map((result, index) => formatQuestionContext(result, index)).join("\n\n");
+	return `User answers:\n${summaryLines}\n\nAnswer context:\n${contextBlocks}`;
 }
 
 const ASK_TOOL_DESCRIPTION = `
@@ -96,7 +187,9 @@ export default function askExtension(pi: ExtensionAPI) {
 					? (await askQuestionsWithTabs(ctx.ui, [q as AskQuestion])).selections[0] ?? { selectedOptions: [] }
 					: await askSingleQuestionWithInlineNote(ctx.ui, q as AskQuestion);
 				const optionLabels = q.options.map((option) => option.label);
-				const details: AskToolDetails = {
+
+				const result: QuestionResult = {
+					id: q.id,
 					question: q.question,
 					options: optionLabels,
 					multi: q.multi ?? false,
@@ -104,22 +197,18 @@ export default function askExtension(pi: ExtensionAPI) {
 					customInput: selection.customInput,
 				};
 
-				if (selection.customInput) {
-					return {
-						content: [{ type: "text", text: `User provided custom input: ${selection.customInput}` }],
-						details,
-					};
-				}
-
-				if (selection.selectedOptions.length > 0) {
-					return {
-						content: [{ type: "text", text: `User selected: ${selection.selectedOptions.join(", ")}` }],
-						details,
-					};
-				}
+				const details: AskToolDetails = {
+					id: q.id,
+					question: q.question,
+					options: optionLabels,
+					multi: q.multi ?? false,
+					selectedOptions: selection.selectedOptions,
+					customInput: selection.customInput,
+					results: [result],
+				};
 
 				return {
-					content: [{ type: "text", text: "User cancelled the selection" }],
+					content: [{ type: "text", text: buildAskSessionContent([result]) }],
 					details,
 				};
 			}
@@ -140,7 +229,7 @@ export default function askExtension(pi: ExtensionAPI) {
 			}
 
 			return {
-				content: [{ type: "text", text: `User answers:\n${results.map(formatQuestionResult).join("\n")}` }],
+				content: [{ type: "text", text: buildAskSessionContent(results) }],
 				details: { results } satisfies AskToolDetails,
 			};
 		},

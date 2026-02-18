@@ -1,6 +1,6 @@
 {
   "name": "pi-ask-tool-extension",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Ask tool extension for pi with tabbed questioning and inline note editing",
   "repository": {
     "type": "git",
@@ -25,7 +25,10 @@
   ],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text",
+    "coverage:check": "node ./scripts/check-coverage.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run test:coverage && npm run coverage:check"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
