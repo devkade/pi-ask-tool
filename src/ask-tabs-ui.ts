@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import {
 	OTHER_OPTION,
 	appendRecommendedTagToOptionLabels,
@@ -8,7 +8,7 @@ import {
 	type AskQuestion,
 	type AskSelection,
 } from "./ask-logic";
-import { buildOptionLabelWithInlineNote } from "./ask-inline-note";
+import { INLINE_NOTE_WRAP_PADDING, buildWrappedOptionLabelWithInlineNote } from "./ask-inline-note";
 
 interface PreparedQuestion {
 	id: string;
@@ -317,27 +317,29 @@ export async function askQuestionsWithTabs(
 			addLine(theme.fg("text", ` ${preparedQuestion.question}`));
 			renderedLines.push("");
 
-			const maxInlineLabelLength = Math.max(12, width - 8);
 			for (let optionIndex = 0; optionIndex < preparedQuestion.options.length; optionIndex++) {
 				const optionLabel = preparedQuestion.options[optionIndex];
 				const isCursorOption = optionIndex === cursorOptionIndex;
 				const isOptionSelected = selectedOptionIndexes.includes(optionIndex);
 				const isEditingThisOption = isNoteEditorOpen && isCursorOption;
-				const optionLabelWithInlineNote = buildOptionLabelWithInlineNote(
+				const cursorPrefixText = isCursorOption ? "→ " : "  ";
+				const cursorPrefix = isCursorOption ? theme.fg("accent", cursorPrefixText) : cursorPrefixText;
+				const markerText = preparedQuestion.multi
+					? `${isOptionSelected ? "[x]" : "[ ]"} `
+					: `${isOptionSelected ? "●" : "○"} `;
+				const optionColor = isCursorOption ? "accent" : isOptionSelected ? "success" : "text";
+				const prefixWidth = visibleWidth(cursorPrefixText) + visibleWidth(markerText);
+				const wrappedInlineLabelLines = buildWrappedOptionLabelWithInlineNote(
 					optionLabel,
 					getQuestionNote(questionIndex, optionIndex),
 					isEditingThisOption,
-					maxInlineLabelLength,
+					Math.max(1, width - prefixWidth),
+					INLINE_NOTE_WRAP_PADDING,
 				);
-				const cursorPrefix = isCursorOption ? theme.fg("accent", "→ ") : "  ";
-				if (preparedQuestion.multi) {
-					const checkbox = isOptionSelected ? "[x]" : "[ ]";
-					const optionColor = isCursorOption ? "accent" : isOptionSelected ? "success" : "text";
-					addLine(`${cursorPrefix}${theme.fg(optionColor, `${checkbox} ${optionLabelWithInlineNote}`)}`);
-				} else {
-					const bullet = isOptionSelected ? "●" : "○";
-					const optionColor = isCursorOption ? "accent" : isOptionSelected ? "success" : "text";
-					addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabelWithInlineNote}`)}`);
+				const continuationPrefix = " ".repeat(prefixWidth);
+				addLine(`${cursorPrefix}${theme.fg(optionColor, `${markerText}${wrappedInlineLabelLines[0] ?? ""}`)}`);
+				for (const wrappedLine of wrappedInlineLabelLines.slice(1)) {
+					addLine(`${continuationPrefix}${theme.fg(optionColor, wrappedLine)}`);
 				}
 			}
 

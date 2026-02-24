@@ -5,7 +5,11 @@ import {
 	buildMultiSelectionResult,
 	buildSingleSelectionResult,
 } from "../src/ask-logic";
-import { buildOptionLabelWithInlineNote } from "../src/ask-inline-note";
+import {
+	INLINE_NOTE_WRAP_PADDING,
+	buildOptionLabelWithInlineNote,
+	buildWrappedOptionLabelWithInlineNote,
+} from "../src/ask-inline-note";
 
 describe("appendRecommendedTagToOptionLabels", () => {
 	it("adds recommended tag only for a valid index", () => {
@@ -116,5 +120,32 @@ describe("buildOptionLabelWithInlineNote", () => {
 		expect(buildOptionLabelWithInlineNote("Other (type your own)", "", true)).toBe(
 			"Other (type your own) — note: ▍",
 		);
+	});
+});
+
+describe("buildWrappedOptionLabelWithInlineNote", () => {
+	it("wraps long inline notes instead of extending past width", () => {
+		const wrapped = buildWrappedOptionLabelWithInlineNote(
+			"Session",
+			"0123456789abcdef0123456789abcdef",
+			false,
+			18,
+			INLINE_NOTE_WRAP_PADDING,
+		);
+
+		expect(wrapped.length).toBeGreaterThan(1);
+		expect(wrapped.every((line) => line.length <= 16)).toBe(true);
+	});
+
+	it("keeps editing cursor visible in wrapped output", () => {
+		const wrapped = buildWrappedOptionLabelWithInlineNote(
+			"Other (type your own)",
+			"custom-flow",
+			true,
+			20,
+			INLINE_NOTE_WRAP_PADDING,
+		);
+
+		expect(wrapped[wrapped.length - 1]?.endsWith("▍")).toBe(true);
 	});
 });

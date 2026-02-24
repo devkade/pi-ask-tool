@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import {
 	OTHER_OPTION,
 	appendRecommendedTagToOptionLabels,
@@ -7,7 +7,7 @@ import {
 	type AskOption,
 	type AskSelection,
 } from "./ask-logic";
-import { buildOptionLabelWithInlineNote } from "./ask-inline-note";
+import { INLINE_NOTE_WRAP_PADDING, buildWrappedOptionLabelWithInlineNote } from "./ask-inline-note";
 
 interface SingleQuestionInput {
 	question: string;
@@ -115,21 +115,28 @@ export async function askSingleQuestionWithInlineNote(
 			addLine(theme.fg("text", ` ${questionInput.question}`));
 			renderedLines.push("");
 
-			const maxInlineLabelLength = Math.max(12, width - 6);
 			for (let optionIndex = 0; optionIndex < selectableOptionLabels.length; optionIndex++) {
 				const optionLabel = selectableOptionLabels[optionIndex];
 				const isCursorOption = optionIndex === cursorOptionIndex;
 				const isEditingThisOption = isNoteEditorOpen && isCursorOption;
-				const optionLabelWithInlineNote = buildOptionLabelWithInlineNote(
+				const cursorPrefixText = isCursorOption ? "→ " : "  ";
+				const cursorPrefix = isCursorOption ? theme.fg("accent", cursorPrefixText) : cursorPrefixText;
+				const bullet = isCursorOption ? "●" : "○";
+				const markerText = `${bullet} `;
+				const optionColor = isCursorOption ? "accent" : "text";
+				const prefixWidth = visibleWidth(cursorPrefixText) + visibleWidth(markerText);
+				const wrappedInlineLabelLines = buildWrappedOptionLabelWithInlineNote(
 					optionLabel,
 					getRawNoteForOption(optionIndex),
 					isEditingThisOption,
-					maxInlineLabelLength,
+					Math.max(1, width - prefixWidth),
+					INLINE_NOTE_WRAP_PADDING,
 				);
-				const cursorPrefix = isCursorOption ? theme.fg("accent", "→ ") : "  ";
-				const bullet = isCursorOption ? "●" : "○";
-				const optionColor = isCursorOption ? "accent" : "text";
-				addLine(`${cursorPrefix}${theme.fg(optionColor, `${bullet} ${optionLabelWithInlineNote}`)}`);
+				const continuationPrefix = " ".repeat(prefixWidth);
+				addLine(`${cursorPrefix}${theme.fg(optionColor, `${markerText}${wrappedInlineLabelLines[0] ?? ""}`)}`);
+				for (const wrappedLine of wrappedInlineLabelLines.slice(1)) {
+					addLine(`${continuationPrefix}${theme.fg(optionColor, wrappedLine)}`);
+				}
 			}
 
 			renderedLines.push("");
