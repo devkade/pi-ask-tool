@@ -147,6 +147,7 @@ export async function askQuestionsWithTabs(
 		let activeTabIndex = 0;
 		let isNoteEditorOpen = false;
 		let cachedRenderedLines: string[] | undefined;
+		let cachedRenderedWidth: number | undefined;
 		const cursorOptionIndexByQuestion = [...initialCursorOptionIndexByQuestion];
 		const selectedOptionIndexesByQuestion = preparedQuestions.map(() => [] as number[]);
 		const noteByQuestionByOption = preparedQuestions.map((preparedQuestion) =>
@@ -192,6 +193,7 @@ export async function askQuestionsWithTabs(
 
 		const requestUiRerender = () => {
 			cachedRenderedLines = undefined;
+			cachedRenderedWidth = undefined;
 			tui.requestRender();
 		};
 
@@ -409,7 +411,7 @@ export async function askQuestionsWithTabs(
 		};
 
 		const render = (width: number): string[] => {
-			if (cachedRenderedLines) return cachedRenderedLines;
+			if (cachedRenderedLines && cachedRenderedWidth === width) return cachedRenderedLines;
 
 			const renderedLines: string[] = [];
 			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
@@ -426,6 +428,7 @@ export async function askQuestionsWithTabs(
 
 			addLine(theme.fg("accent", "─".repeat(width)));
 			cachedRenderedLines = renderedLines;
+			cachedRenderedWidth = width;
 			return renderedLines;
 		};
 
@@ -534,6 +537,7 @@ export async function askQuestionsWithTabs(
 			render,
 			invalidate: () => {
 				cachedRenderedLines = undefined;
+				cachedRenderedWidth = undefined;
 			},
 			handleInput,
 		};

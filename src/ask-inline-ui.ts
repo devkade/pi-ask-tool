@@ -60,6 +60,7 @@ export async function askSingleQuestionWithInlineNote(
 		let cursorOptionIndex = initialCursorIndex;
 		let isNoteEditorOpen = false;
 		let cachedRenderedLines: string[] | undefined;
+		let cachedRenderedWidth: number | undefined;
 		const noteByOptionIndex = new Map<number, string>();
 
 		const editorTheme: EditorTheme = {
@@ -98,6 +99,7 @@ export async function askSingleQuestionWithInlineNote(
 
 		const requestUiRerender = () => {
 			cachedRenderedLines = undefined;
+			cachedRenderedWidth = undefined;
 			tui.requestRender();
 		};
 
@@ -139,7 +141,7 @@ export async function askSingleQuestionWithInlineNote(
 		};
 
 		const render = (width: number): string[] => {
-			if (cachedRenderedLines) return cachedRenderedLines;
+			if (cachedRenderedLines && cachedRenderedWidth === width) return cachedRenderedLines;
 
 			const renderedLines: string[] = [];
 			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
@@ -194,6 +196,7 @@ export async function askSingleQuestionWithInlineNote(
 
 			addLine(theme.fg("accent", "─".repeat(width)));
 			cachedRenderedLines = renderedLines;
+			cachedRenderedWidth = width;
 			return renderedLines;
 		};
 
@@ -251,6 +254,7 @@ export async function askSingleQuestionWithInlineNote(
 			render,
 			invalidate: () => {
 				cachedRenderedLines = undefined;
+				cachedRenderedWidth = undefined;
 			},
 			handleInput,
 		};
