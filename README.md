@@ -24,6 +24,8 @@ This extension provides:
 - **Single + multi-select** in one tool
 - **Tab-based multi-question flow** with a final submit review tab
 - **Inline note editing** (no large UI pane shifts)
+- **Question text auto-wrap** (avoids one-line `...` truncation)
+- **Optional Markdown context** for longer explanations/structure diagrams
 - **Automatic `Other (type your own)` handling**
 
 ## Install
@@ -157,6 +159,24 @@ Response:
   Selected: Redis
 ```
 
+### Question with Markdown context (long guidance / structure)
+
+```ts
+ask({
+  questions: [
+    {
+      id: "architecture",
+      question: "Which execution path should we prioritize?",
+      description: `# Background\n\n- Current bottleneck: network I/O\n- Goal: reduce response latency\n\n\`\`\`text\n[Client] -> [API] -> [Cache] -> [DB]\n\`\`\``,
+      options: [{ label: "Cache-first" }, { label: "DB-first" }],
+      recommended: 0
+    }
+  ]
+})
+```
+
+`description` accepts both Markdown and plain text, and is wrapped above options.
+
 ## Interaction Model
 
 | Flow | UI style | Submit behavior |
@@ -192,6 +212,7 @@ For `Other`, a note is required to become valid.
     {
       id: string,
       question: string,
+      description?: string, // optional Markdown/plain context shown above options
       options: [{ label: string }],
       multi?: boolean,
       recommended?: number // 0-indexed
@@ -229,4 +250,5 @@ Coverage gate defaults (override via env vars in CI if needed):
 - `src/ask-inline-ui.ts` - single-question UI
 - `src/ask-tabs-ui.ts` - tabbed multi-question UI
 - `src/ask-inline-note.ts` - inline note rendering helper
+- `src/ask-text-wrap.ts` - shared line-wrapping helper for long prompts
 - `test/*.test.ts` - logic + UI mapping + integration coverage

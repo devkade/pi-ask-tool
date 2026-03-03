@@ -8,6 +8,7 @@ export interface AskOption {
 export interface AskQuestion {
 	id: string;
 	question: string;
+	description?: string;
 	options: AskOption[];
 	multi?: boolean;
 	recommended?: number;

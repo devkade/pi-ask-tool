@@ -1,5 +1,14 @@
 import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import {
+	Editor,
+	Markdown,
+	type EditorTheme,
+	type MarkdownTheme,
+	Key,
+	matchesKey,
+	truncateToWidth,
+	visibleWidth,
+} from "@mariozechner/pi-tui";
 import {
 	OTHER_OPTION,
 	appendRecommendedTagToOptionLabels,
@@ -9,10 +18,12 @@ import {
 	type AskSelection,
 } from "./ask-logic";
 import { INLINE_NOTE_WRAP_PADDING, buildWrappedOptionLabelWithInlineNote } from "./ask-inline-note";
+import { appendWrappedTextLines } from "./ask-text-wrap";
 
 interface PreparedQuestion {
 	id: string;
 	question: string;
+	description?: string;
 	options: string[];
 	tabLabel: string;
 	multi: boolean;
@@ -120,6 +131,7 @@ export async function askQuestionsWithTabs(
 		return {
 			id: question.id,
 			question: question.question,
+			description: question.description,
 			options: optionLabels,
 			tabLabel: normalizeTabLabel(question.id, `Q${questionIndex + 1}`),
 			multi: question.multi === true,
@@ -152,6 +164,29 @@ export async function askQuestionsWithTabs(
 			},
 		};
 		const noteEditor = new Editor(tui, editorTheme);
+		const markdownTheme: MarkdownTheme = {
+			heading: (text) => theme.fg("mdHeading", text),
+			link: (text) => theme.fg("mdLink", text),
+			linkUrl: (text) => theme.fg("mdLinkUrl", text),
+			code: (text) => theme.fg("mdCode", text),
+			codeBlock: (text) => theme.fg("mdCodeBlock", text),
+			codeBlockBorder: (text) => theme.fg("mdCodeBlockBorder", text),
+			quote: (text) => theme.fg("mdQuote", text),
+			quoteBorder: (text) => theme.fg("mdQuoteBorder", text),
+			hr: (text) => theme.fg("mdHr", text),
+			listBullet: (text) => theme.fg("mdListBullet", text),
+			bold: (text) => theme.bold(text),
+			italic: (text) => theme.italic(text),
+			strikethrough: (text) => theme.strikethrough(text),
+			underline: (text) => theme.underline(text),
+		};
+		const descriptionMarkdownByQuestion = preparedQuestions.map((preparedQuestion) =>
+			preparedQuestion.description && preparedQuestion.description.trim().length > 0
+				? new Markdown(preparedQuestion.description, 0, 0, markdownTheme, {
+						color: (text) => theme.fg("muted", text),
+					})
+				: undefined,
+		);
 
 		const submitTabIndex = preparedQuestions.length;
 
@@ -314,7 +349,18 @@ export async function askQuestionsWithTabs(
 			const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
 			const selectedOptionIndexes = selectedOptionIndexesByQuestion[questionIndex];
 
-			addLine(theme.fg("text", ` ${preparedQuestion.question}`));
+			appendWrappedTextLines(renderedLines, preparedQuestion.question, width, {
+				indent: 1,
+				formatLine: (line) => theme.fg("text", line),
+			});
+			const questionDescriptionMarkdown = descriptionMarkdownByQuestion[questionIndex];
+			if (questionDescriptionMarkdown) {
+				renderedLines.push("");
+				const descriptionLines = questionDescriptionMarkdown.render(Math.max(1, width - 1));
+				for (const descriptionLine of descriptionLines) {
+					addLine(` ${descriptionLine}`);
+				}
+			}
 			renderedLines.push("");
 
 			for (let optionIndex = 0; optionIndex < preparedQuestion.options.length; optionIndex++) {

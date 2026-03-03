@@ -111,6 +111,38 @@ describe("ask extension tool", () => {
 		});
 	});
 
+	it("includes optional description in details and answer context", async () => {
+		const tool = createAskTool();
+		const description = "# Background\n- Current bottleneck: network I/O\n```text\nClient -> API -> DB\n```";
+		const result = await tool.execute(
+			"call-3b",
+			{
+				questions: [
+					{
+						id: "architecture",
+						question: "Which path should we prioritize?",
+						description,
+						options: [{ label: "Cache-first" }, { label: "DB-first" }],
+					},
+				],
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: true,
+				ui: uiWithCustomQueue([{ cancelled: false, selectedOption: "Cache-first", note: "" }]),
+			} as any,
+		);
+
+		const text = getTextContent(result);
+		expect(text).toContain("Question 1 (architecture)");
+		expect(text).toContain("Context:");
+		expect(text).toContain("# Background");
+		expect(text).toContain("Client -> API -> DB");
+		expect(result.details?.description).toBe(description);
+		expect(result.details?.results?.[0]?.description).toBe(description);
+	});
+
 	it("handles single multi question via tab submit flow", async () => {
 		const tool = createAskTool();
 		const result = await tool.execute(

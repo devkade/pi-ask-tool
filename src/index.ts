@@ -11,6 +11,12 @@ const OptionItemSchema = Type.Object({
 const QuestionItemSchema = Type.Object({
 	id: Type.String({ description: "Question id (e.g. auth, cache, priority)" }),
 	question: Type.String({ description: "Question text" }),
+	description: Type.Optional(
+		Type.String({
+			description:
+				"Optional context in Markdown/plain text. Rendered above options with wrapping (supports headings/lists/code blocks).",
+		}),
+	),
 	options: Type.Array(OptionItemSchema, {
 		description: "Available options. Do not include 'Other'.",
 		minItems: 1,
@@ -30,6 +36,7 @@ type AskParams = Static<typeof AskParamsSchema>;
 interface QuestionResult {
 	id: string;
 	question: string;
+	description?: string;
 	options: string[];
 	multi: boolean;
 	selectedOptions: string[];
@@ -39,6 +46,7 @@ interface QuestionResult {
 interface AskToolDetails {
 	id?: string;
 	question?: string;
+	description?: string;
 	options?: string[];
 	multi?: boolean;
 	selectedOptions?: string[];
@@ -54,6 +62,16 @@ function sanitizeForSessionText(value: string): string {
 		.trim();
 }
 
+function sanitizeMultilineForSessionText(value: string): string {
+	return value
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.split("\n")
+		.map((line) => sanitizeForSessionText(line))
+		.join("\n")
+		.trim();
+}
+
 function sanitizeOptionForSessionText(option: string): string {
 	const sanitizedOption = sanitizeForSessionText(option);
 	return sanitizedOption.length > 0 ? sanitizedOption : "(empty option)";
@@ -64,12 +82,15 @@ function toSessionSafeQuestionResult(result: QuestionResult): QuestionResult {
 		.map((selectedOption) => sanitizeForSessionText(selectedOption))
 		.filter((selectedOption) => selectedOption.length > 0);
 
+	const rawDescription = result.description;
+	const description = rawDescription == null ? undefined : sanitizeMultilineForSessionText(rawDescription);
 	const rawCustomInput = result.customInput;
 	const customInput = rawCustomInput == null ? undefined : sanitizeForSessionText(rawCustomInput);
 
 	return {
 		id: sanitizeForSessionText(result.id) || "(unknown)",
 		question: sanitizeForSessionText(result.question) || "(empty question)",
+		description: description && description.length > 0 ? description : undefined,
 		options: result.options.map(sanitizeOptionForSessionText),
 		multi: result.multi,
 		selectedOptions,
@@ -108,13 +129,18 @@ function formatQuestionResult(result: QuestionResult): string {
 }
 
 function formatQuestionContext(result: QuestionResult, questionIndex: number): string {
-	const lines: string[] = [
-		`Question ${questionIndex + 1} (${result.id})`,
-		`Prompt: ${result.question}`,
-		"Options:",
-		...result.options.map((option, optionIndex) => `  ${optionIndex + 1}. ${option}`),
-		"Response:",
-	];
+	const lines: string[] = [`Question ${questionIndex + 1} (${result.id})`, `Prompt: ${result.question}`];
+
+	if (result.description) {
+		lines.push("Context:");
+		for (const descriptionLine of result.description.split("\n")) {
+			lines.push(`  ${descriptionLine}`);
+		}
+	}
+
+	lines.push("Options:");
+	lines.push(...result.options.map((option, optionIndex) => `  ${optionIndex + 1}. ${option}`));
+	lines.push("Response:");
 
 	const hasSelectedOptions = result.selectedOptions.length > 0;
 	const hasCustomInput = Boolean(result.customInput);
@@ -155,6 +181,7 @@ Ask the user for clarification when a choice materially affects the outcome.
 - Prefer 2-5 concise options.
 - Use multi=true when multiple answers are valid.
 - Use recommended=<index> (0-indexed) to mark the default option.
+- Use description to provide Markdown/plain context (supports long explanations and structure diagrams).
 - You can ask multiple related questions in one call using questions[].
 - Do NOT include an 'Other' option; UI adds it automatically.
 `.trim();
@@ -191,6 +218,7 @@ export default function askExtension(pi: ExtensionAPI) {
 				const result: QuestionResult = {
 					id: q.id,
 					question: q.question,
+					...(q.description && q.description.trim().length > 0 ? { description: q.description } : {}),
 					options: optionLabels,
 					multi: q.multi ?? false,
 					selectedOptions: selection.selectedOptions,
@@ -200,6 +228,7 @@ export default function askExtension(pi: ExtensionAPI) {
 				const details: AskToolDetails = {
 					id: q.id,
 					question: q.question,
+					...(q.description && q.description.trim().length > 0 ? { description: q.description } : {}),
 					options: optionLabels,
 					multi: q.multi ?? false,
 					selectedOptions: selection.selectedOptions,
@@ -221,6 +250,7 @@ export default function askExtension(pi: ExtensionAPI) {
 				results.push({
 					id: q.id,
 					question: q.question,
+					...(q.description && q.description.trim().length > 0 ? { description: q.description } : {}),
 					options: q.options.map((option) => option.label),
 					multi: q.multi ?? false,
 					selectedOptions: selection.selectedOptions,
