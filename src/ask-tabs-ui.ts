@@ -207,6 +207,19 @@ export async function askQuestionsWithTabs(
 
 		const getTrimmedQuestionNote = (questionIndex: number, optionIndex: number): string =>
 			getQuestionNote(questionIndex, optionIndex).trim();
+		const getEditingCursorIndex = (): number => {
+			const lines = noteEditor.getLines();
+			const cursor = noteEditor.getCursor();
+			if (lines.length === 0) return 0;
+
+			const safeLineIndex = Math.max(0, Math.min(cursor.line, lines.length - 1));
+			const safeColumnIndex = Math.max(0, Math.min(cursor.col, lines[safeLineIndex]?.length ?? 0));
+			let linearCursorIndex = safeColumnIndex;
+			for (let lineIndex = 0; lineIndex < safeLineIndex; lineIndex++) {
+				linearCursorIndex += (lines[lineIndex]?.length ?? 0) + 1;
+			}
+			return linearCursorIndex;
+		};
 
 		const isAllQuestionSelectionsValid = (): boolean =>
 			preparedQuestions.every((preparedQuestion, questionIndex) =>
@@ -365,6 +378,7 @@ export async function askQuestionsWithTabs(
 			}
 			renderedLines.push("");
 
+			const activeEditingCursorIndex = isNoteEditorOpen ? getEditingCursorIndex() : undefined;
 			for (let optionIndex = 0; optionIndex < preparedQuestion.options.length; optionIndex++) {
 				const optionLabel = preparedQuestion.options[optionIndex];
 				const isCursorOption = optionIndex === cursorOptionIndex;
@@ -383,6 +397,7 @@ export async function askQuestionsWithTabs(
 					isEditingThisOption,
 					Math.max(1, width - prefixWidth),
 					INLINE_NOTE_WRAP_PADDING,
+					isEditingThisOption ? activeEditingCursorIndex : undefined,
 				);
 				const continuationPrefix = " ".repeat(prefixWidth);
 				addLine(`${cursorPrefix}${theme.fg(optionColor, `${markerText}${wrappedInlineLabelLines[0] ?? ""}`)}`);

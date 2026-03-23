@@ -4,6 +4,17 @@ import { OTHER_OPTION, type AskQuestion } from "../src/ask-logic";
 import { askSingleQuestionWithInlineNote } from "../src/ask-inline-ui";
 import { askQuestionsWithTabs, formatSelectionForSubmitReview } from "../src/ask-tabs-ui";
 
+function createFakeTheme() {
+	return {
+		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		italic: (text: string) => text,
+		underline: (text: string) => text,
+		strikethrough: (text: string) => text,
+	};
+}
+
 function uiWithCustomResult<T>(result: T): ExtensionUIContext {
 	return {
 		custom: async () => result,
@@ -51,6 +62,44 @@ describe("askSingleQuestionWithInlineNote", () => {
 		});
 
 		expect(result).toEqual({ selectedOptions: [] });
+	});
+
+	it("moves inline caret when editing cursor moves left", async () => {
+		let caretAtEndLine = "";
+		let caretMovedLine = "";
+
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.handleInput("\t");
+				for (const key of "split") {
+					component.handleInput(key);
+				}
+				caretAtEndLine =
+					component.render(100).find((line: string) => line.includes("Session — note:")) ?? "";
+				component.handleInput("\u001b[D");
+				component.handleInput("\u001b[D");
+				caretMovedLine =
+					component.render(100).find((line: string) => line.includes("Session — note:")) ?? "";
+				done({ cancelled: true });
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		await askSingleQuestionWithInlineNote(ui, {
+			question: "Which auth?",
+			options: [{ label: "Session" }],
+		});
+
+		expect(caretAtEndLine).toContain("Session — note: split▍");
+		expect(caretMovedLine).toContain("Session — note: spl▍it");
 	});
 });
 
