@@ -121,6 +121,21 @@ describe("buildOptionLabelWithInlineNote", () => {
 			"Other (type your own) — note: ▍",
 		);
 	});
+
+	it("renders editing cursor at the provided cursor index", () => {
+		expect(buildOptionLabelWithInlineNote("Session", "split-session", true, undefined, 5)).toBe(
+			"Session — note: split▍-session",
+		);
+		expect(buildOptionLabelWithInlineNote("Session", "split-session", true, undefined, 0)).toBe(
+			"Session — note: ▍split-session",
+		);
+	});
+
+	it("maps editing cursor position after sanitizing multiline text", () => {
+		expect(buildOptionLabelWithInlineNote("Session", "line1\nline2", true, undefined, 6)).toBe(
+			"Session — note: line1 ▍line2",
+		);
+	});
 });
 
 describe("buildWrappedOptionLabelWithInlineNote", () => {
@@ -147,5 +162,18 @@ describe("buildWrappedOptionLabelWithInlineNote", () => {
 		);
 
 		expect(wrapped[wrapped.length - 1]?.endsWith("▍")).toBe(true);
+	});
+
+	it("places wrapped editing cursor at the provided index", () => {
+		const wrapped = buildWrappedOptionLabelWithInlineNote(
+			"Session",
+			"0123456789",
+			true,
+			16,
+			INLINE_NOTE_WRAP_PADDING,
+			4,
+		);
+
+		expect(wrapped.join(" ")).toContain("0123▍456789");
 	});
 });
