@@ -190,7 +190,7 @@ ask({
 Press `Tab` on any option to edit a note inline on that same row.
 
 - Display format: `Option — note: ...`
-- Editing cursor: `█`
+- Editing cursor: inverse block on the character under caret (or space at end)
 - Notes are sanitized for inline display (line breaks/control chars)
 - Narrow-width rendering keeps the edit cursor visible
 

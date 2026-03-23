@@ -4,6 +4,10 @@ import { OTHER_OPTION, type AskQuestion } from "../src/ask-logic";
 import { askSingleQuestionWithInlineNote } from "../src/ask-inline-ui";
 import { askQuestionsWithTabs, formatSelectionForSubmitReview } from "../src/ask-tabs-ui";
 
+const CURSOR_INVERT_ON = "\u001b[7m";
+const CURSOR_INVERT_OFF = "\u001b[27m";
+const renderCursorCell = (char = " ") => `${CURSOR_INVERT_ON}${char}${CURSOR_INVERT_OFF}`;
+
 function createFakeTheme() {
 	return {
 		fg: (_color: string, text: string) => text,
@@ -98,8 +102,8 @@ describe("askSingleQuestionWithInlineNote", () => {
 			options: [{ label: "Session" }],
 		});
 
-		expect(caretAtEndLine).toContain("Session — note: split█");
-		expect(caretMovedLine).toContain("Session — note: spl█it");
+		expect(caretAtEndLine).toContain(`Session — note: split${renderCursorCell()}`);
+		expect(caretMovedLine).toContain(`Session — note: spl${renderCursorCell("i")}t`);
 	});
 });
 

@@ -1,7 +1,8 @@
 import { wrapTextWithAnsi } from "@mariozechner/pi-tui";
 
 const INLINE_NOTE_SEPARATOR = " — note: ";
-const INLINE_EDIT_CURSOR = "█";
+const INLINE_EDIT_CURSOR_INVERT_ON = "\u001b[7m";
+const INLINE_EDIT_CURSOR_INVERT_OFF = "\u001b[27m";
 
 export const INLINE_NOTE_WRAP_PADDING = 2;
 
@@ -19,8 +20,12 @@ function clampCursorIndex(index: number, rawTextLength: number): number {
 function buildEditingInlineNote(rawNote: string, editingCursorIndex?: number): string {
 	const cursorIndex = clampCursorIndex(editingCursorIndex ?? rawNote.length, rawNote.length);
 	const beforeCursor = sanitizeNoteForInlineDisplay(rawNote.slice(0, cursorIndex));
-	const afterCursor = sanitizeNoteForInlineDisplay(rawNote.slice(cursorIndex));
-	return `${beforeCursor}${INLINE_EDIT_CURSOR}${afterCursor}`;
+	const rawCharAtCursor = rawNote.slice(cursorIndex, cursorIndex + 1);
+	const charAtCursor = sanitizeNoteForInlineDisplay(rawCharAtCursor) || " ";
+	const afterCursorStartIndex = rawCharAtCursor.length > 0 ? cursorIndex + 1 : cursorIndex;
+	const afterCursor = sanitizeNoteForInlineDisplay(rawNote.slice(afterCursorStartIndex));
+	const cursorCell = `${INLINE_EDIT_CURSOR_INVERT_ON}${charAtCursor}${INLINE_EDIT_CURSOR_INVERT_OFF}`;
+	return `${beforeCursor}${cursorCell}${afterCursor}`;
 }
 
 function truncateTextKeepingTail(text: string, maxLength: number): string {
