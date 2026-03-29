@@ -206,6 +206,11 @@ export async function askSingleQuestionWithInlineNote(
 		};
 
 		const handleInput = (data: string) => {
+			if (matchesKey(data, Key.ctrl("c"))) {
+				done({ cancelled: true });
+				return;
+			}
+
 			if (isNoteEditorOpen) {
 				if (matchesKey(data, Key.tab) || matchesKey(data, Key.escape)) {
 					isNoteEditorOpen = false;

@@ -65,6 +65,33 @@ describe("askSingleQuestionWithInlineNote interactive branches", () => {
 		expect(result).toEqual({ selectedOptions: [], customInput: "custom-flow" });
 	});
 
+	it("cancels single-question flow on Ctrl-C, including from note editor", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(40);
+				component.handleInput("	");
+				component.handleInput("draft");
+				component.handleInput("");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askSingleQuestionWithInlineNote(ui, {
+			question: "Choose one",
+			options: [{ label: "A" }, { label: "B" }],
+		});
+
+		expect(result).toEqual({ selectedOptions: [] });
+	});
+
 	it("handles navigation, inline edit exit, invalidate, and cancel", async () => {
 		const ui = {
 			custom: async (factory: any) => {
@@ -247,6 +274,64 @@ describe("askQuestionsWithTabs interactive branches", () => {
 		expect(result).toEqual({
 			cancelled: false,
 			selections: [{ selectedOptions: ["A"] }],
+		});
+	});
+
+	it("cancels tab flow on Ctrl-C from note editor", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(40);
+				component.handleInput("	");
+				component.handleInput("memo");
+				component.handleInput("");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askQuestionsWithTabs(ui, [
+			{ id: "q1", question: "Question 1", options: [{ label: "A" }, { label: "B" }] },
+			{ id: "q2", question: "Question 2", options: [{ label: "C" }, { label: "D" }] },
+		]);
+
+		expect(result).toEqual({
+			cancelled: true,
+			selections: [{ selectedOptions: [] }, { selectedOptions: [] }],
+		});
+	});
+
+	it("cancels tab flow on Ctrl-C from submit tab", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.handleInput("\r");
+				component.handleInput("\u001b[C");
+				component.handleInput("\u0003");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askQuestionsWithTabs(ui, [
+			{ id: "q1", question: "Question 1", options: [{ label: "A" }] },
+		]);
+
+		expect(result).toEqual({
+			cancelled: true,
+			selections: [{ selectedOptions: [] }],
 		});
 	});
 

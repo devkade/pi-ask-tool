@@ -438,6 +438,11 @@ export async function askQuestionsWithTabs(
 		};
 
 		const handleInput = (data: string) => {
+			if (matchesKey(data, Key.ctrl("c"))) {
+				done(createTabsUiStateSnapshot(true, selectedOptionIndexesByQuestion, noteByQuestionByOption));
+				return;
+			}
+
 			if (isNoteEditorOpen) {
 				if (matchesKey(data, Key.tab) || matchesKey(data, Key.escape)) {
 					isNoteEditorOpen = false;
