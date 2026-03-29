@@ -277,7 +277,7 @@ describe("askQuestionsWithTabs interactive branches", () => {
 		});
 	});
 
-	it("cancels tab flow on Ctrl-C from question, note editor, and submit tab", async () => {
+	it("cancels tab flow on Ctrl-C from note editor", async () => {
 		const ui = {
 			custom: async (factory: any) => {
 				const tui = { requestRender() {} };
