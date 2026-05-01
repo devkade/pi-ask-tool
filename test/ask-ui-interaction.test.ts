@@ -30,6 +30,72 @@ code block
 `;
 
 describe("askSingleQuestionWithInlineNote interactive branches", () => {
+	it("opens Other note editor immediately on navigation and accepts direct typing", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(80);
+				component.handleInput("\u001b[B");
+				const otherState = component.render(80).join("\n");
+				expect(otherState).toContain("Other (type your own) — note:");
+				expect(otherState).toContain("Typing note inline");
+				for (const ch of "custom-flow") {
+					component.handleInput(ch);
+				}
+				const withTypedNote = component.render(80).join("\n");
+				expect(withTypedNote).toContain("Other (type your own) — note: custom-flow");
+				component.handleInput("\r");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askSingleQuestionWithInlineNote(ui, {
+			question: "Choose one very long answer so wrapped rendering is exercised in tests.",
+			description: RICH_MARKDOWN,
+			options: [{ label: "Default strategy with extra-long option label" }],
+		});
+
+		expect(result).toEqual({ selectedOptions: [], customInput: "custom-flow" });
+	});
+
+	it("returns to navigation when pressing arrows on an empty Other note", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(80);
+				component.handleInput("\u001b[B");
+				const openState = component.render(80).join("\n");
+				expect(openState).toContain("Typing note inline");
+				component.handleInput("\u001b[A");
+				const movedState = component.render(80).join("\n");
+				expect(movedState).not.toContain("Typing note inline");
+				expect(movedState).toContain("→ ● Default strategy with extra-long option label");
+				done({ cancelled: true });
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		await askSingleQuestionWithInlineNote(ui, {
+			question: "Choose one very long answer so wrapped rendering is exercised in tests.",
+			description: RICH_MARKDOWN,
+			options: [{ label: "Default strategy with extra-long option label" }],
+		});
+	});
+
 	it("requires note for Other before allowing submit", async () => {
 		const ui = {
 			custom: async (factory: any) => {
@@ -153,6 +219,89 @@ describe("askSingleQuestionWithInlineNote interactive branches", () => {
 });
 
 describe("askQuestionsWithTabs interactive branches", () => {
+	it("opens Other note editor immediately in tab flow and accepts direct typing", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(80);
+				component.handleInput("\u001b[B");
+				component.handleInput("\u001b[B");
+				const otherState = component.render(80).join("\n");
+				expect(otherState).toContain("Other (type your own) — note:");
+				expect(otherState).toContain("Typing note inline");
+				for (const ch of "org-sso") {
+					component.handleInput(ch);
+				}
+				const withTypedNote = component.render(80).join("\n");
+				expect(withTypedNote).toContain("Other (type your own) — note: org-sso");
+				component.handleInput("\r");
+				const submitScreen = component.render(80).join("\n");
+				expect(submitScreen).toContain("Review answers");
+				component.handleInput("\r");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askQuestionsWithTabs(ui, [
+			{
+				id: "primary_choice",
+				question: "Pick one option",
+				options: [{ label: "Option A" }, { label: "Option B" }],
+			},
+		]);
+
+		expect(result).toEqual({
+			cancelled: false,
+			selections: [{ selectedOptions: [], customInput: "org-sso" }],
+		});
+	});
+
+	it("returns to tab navigation when pressing arrows on an empty Other note", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(80);
+				component.handleInput("\u001b[B");
+				component.handleInput("\u001b[B");
+				const openState = component.render(80).join("\n");
+				expect(openState).toContain("Typing note inline");
+				component.handleInput("\u001b[C");
+				const movedState = component.render(80).join("\n");
+				expect(movedState).not.toContain("Typing note inline");
+				expect(movedState).toContain("Second question");
+				done({ cancelled: true, selectedOptionIndexesByQuestion: [[], []], noteByQuestionByOption: [["", "", ""], ["", "", ""]] });
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		await askQuestionsWithTabs(ui, [
+			{
+				id: "primary_choice",
+				question: "Pick one option",
+				options: [{ label: "Option A" }, { label: "Option B" }],
+			},
+			{
+				id: "second_question",
+				question: "Second question",
+				options: [{ label: "X" }, { label: "Y" }],
+			},
+		]);
+	});
+
 	it("covers multi-select toggling, Other note flow, and submit", async () => {
 		const ui = {
 			custom: async (factory: any) => {
