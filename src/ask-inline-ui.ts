@@ -111,6 +111,12 @@ export async function askSingleQuestionWithInlineNote(
 			noteEditor.setText(getRawNoteForOption(cursorOptionIndex));
 		};
 
+		const openNoteEditorForCurrentOption = () => {
+			if (isNoteEditorOpen) return;
+			isNoteEditorOpen = true;
+			loadCurrentNoteIntoEditor();
+		};
+
 		const saveCurrentNoteFromEditor = (value: string) => {
 			noteByOptionIndex.set(cursorOptionIndex, value);
 		};
@@ -217,25 +223,38 @@ export async function askSingleQuestionWithInlineNote(
 					requestUiRerender();
 					return;
 				}
-				noteEditor.handleInput(data);
-				requestUiRerender();
-				return;
+
+				if (
+					(matchesKey(data, Key.up) || matchesKey(data, Key.down)) &&
+					getTrimmedNoteForOption(cursorOptionIndex).length === 0
+				) {
+					isNoteEditorOpen = false;
+				} else {
+					noteEditor.handleInput(data);
+					requestUiRerender();
+					return;
+				}
 			}
 
 			if (matchesKey(data, Key.up)) {
 				cursorOptionIndex = Math.max(0, cursorOptionIndex - 1);
+				if (selectableOptionLabels[cursorOptionIndex] === OTHER_OPTION) {
+					openNoteEditorForCurrentOption();
+				}
 				requestUiRerender();
 				return;
 			}
 			if (matchesKey(data, Key.down)) {
 				cursorOptionIndex = Math.min(selectableOptionLabels.length - 1, cursorOptionIndex + 1);
+				if (selectableOptionLabels[cursorOptionIndex] === OTHER_OPTION) {
+					openNoteEditorForCurrentOption();
+				}
 				requestUiRerender();
 				return;
 			}
 
 			if (matchesKey(data, Key.tab)) {
-				isNoteEditorOpen = true;
-				loadCurrentNoteIntoEditor();
+				openNoteEditorForCurrentOption();
 				requestUiRerender();
 				return;
 			}
@@ -257,6 +276,14 @@ export async function askSingleQuestionWithInlineNote(
 
 			if (matchesKey(data, Key.escape)) {
 				done({ cancelled: true });
+				return;
+			}
+
+			if (selectableOptionLabels[cursorOptionIndex] === OTHER_OPTION) {
+				openNoteEditorForCurrentOption();
+				noteEditor.handleInput(data);
+				requestUiRerender();
+				return;
 			}
 		};
 
