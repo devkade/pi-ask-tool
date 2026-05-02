@@ -21,6 +21,10 @@ import { getLinearCursorIndexFromEditor } from "./ask-inline-editor-cursor";
 import { INLINE_NOTE_WRAP_PADDING, buildWrappedOptionLabelWithInlineNote } from "./ask-inline-note";
 import { appendWrappedTextLines } from "./ask-text-wrap";
 
+const isPreviousOptionKey = (data: string) => matchesKey(data, Key.ctrl("p")) || matchesKey(data, Key.up);
+const isNextOptionKey = (data: string) => matchesKey(data, Key.ctrl("n")) || matchesKey(data, Key.down);
+const isOptionNavigationKey = (data: string) => isPreviousOptionKey(data) || isNextOptionKey(data);
+
 interface PreparedQuestion {
 	id: string;
 	question: string;
@@ -404,12 +408,12 @@ export async function askQuestionsWithTabs(
 					addLine(
 						theme.fg(
 							"dim",
-							" ↑↓ move • Enter toggle/select • Tab add note • ←/→ switch tabs • Esc cancel",
+							" Ctrl+P/N or ↑↓ move • Enter toggle/select • Tab add note • ←/→ switch tabs • Esc cancel",
 						),
 					);
 				} else {
 					addLine(
-						theme.fg("dim", " ↑↓ move • Enter select • Tab add note • ←/→ switch tabs • Esc cancel"),
+						theme.fg("dim", " Ctrl+P/N or ↑↓ move • Enter select • Tab add note • ←/→ switch tabs • Esc cancel"),
 					);
 				}
 			}
@@ -453,10 +457,7 @@ export async function askQuestionsWithTabs(
 				const questionIndex = getActiveQuestionIndex();
 				const cursorOptionIndex = questionIndex == null ? 0 : cursorOptionIndexByQuestion[questionIndex];
 				const noteIsEmpty = questionIndex == null || getTrimmedQuestionNote(questionIndex, cursorOptionIndex).length === 0;
-				if (
-					noteIsEmpty &&
-					(matchesKey(data, Key.up) || matchesKey(data, Key.down) || matchesKey(data, Key.left) || matchesKey(data, Key.right))
-				) {
+				if (noteIsEmpty && (isOptionNavigationKey(data) || matchesKey(data, Key.left) || matchesKey(data, Key.right))) {
 					isNoteEditorOpen = false;
 				} else {
 					noteEditor.handleInput(data);
@@ -505,7 +506,7 @@ export async function askQuestionsWithTabs(
 			const questionIndex = activeTabIndex;
 			const preparedQuestion = preparedQuestions[questionIndex];
 
-			if (matchesKey(data, Key.up)) {
+			if (isPreviousOptionKey(data)) {
 				cursorOptionIndexByQuestion[questionIndex] = Math.max(0, cursorOptionIndexByQuestion[questionIndex] - 1);
 				if (preparedQuestion.options[cursorOptionIndexByQuestion[questionIndex]] === OTHER_OPTION) {
 					openNoteEditorForActiveOption();
@@ -515,7 +516,7 @@ export async function askQuestionsWithTabs(
 				return;
 			}
 
-			if (matchesKey(data, Key.down)) {
+			if (isNextOptionKey(data)) {
 				cursorOptionIndexByQuestion[questionIndex] = Math.min(
 					preparedQuestion.options.length - 1,
 					cursorOptionIndexByQuestion[questionIndex] + 1,

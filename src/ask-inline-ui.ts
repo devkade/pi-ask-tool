@@ -20,6 +20,10 @@ import { getLinearCursorIndexFromEditor } from "./ask-inline-editor-cursor";
 import { INLINE_NOTE_WRAP_PADDING, buildWrappedOptionLabelWithInlineNote } from "./ask-inline-note";
 import { appendWrappedTextLines } from "./ask-text-wrap";
 
+const isPreviousOptionKey = (data: string) => matchesKey(data, Key.ctrl("p")) || matchesKey(data, Key.up);
+const isNextOptionKey = (data: string) => matchesKey(data, Key.ctrl("n")) || matchesKey(data, Key.down);
+const isOptionNavigationKey = (data: string) => isPreviousOptionKey(data) || isNextOptionKey(data);
+
 interface SingleQuestionInput {
 	question: string;
 	description?: string;
@@ -200,9 +204,9 @@ export async function askSingleQuestionWithInlineNote(
 			if (isNoteEditorOpen) {
 				addLine(theme.fg("dim", " Typing note inline • Enter submit • Tab/Esc stop editing"));
 			} else if (getTrimmedNoteForOption(cursorOptionIndex).length > 0) {
-				addLine(theme.fg("dim", " ↑↓ move • Enter submit • Tab edit note • Esc cancel"));
+				addLine(theme.fg("dim", " Ctrl+P/N or ↑↓ move • Enter submit • Tab edit note • Esc cancel"));
 			} else {
-				addLine(theme.fg("dim", " ↑↓ move • Enter submit • Tab add note • Esc cancel"));
+				addLine(theme.fg("dim", " Ctrl+P/N or ↑↓ move • Enter submit • Tab add note • Esc cancel"));
 			}
 
 			addLine(theme.fg("accent", "─".repeat(width)));
@@ -224,10 +228,7 @@ export async function askSingleQuestionWithInlineNote(
 					return;
 				}
 
-				if (
-					(matchesKey(data, Key.up) || matchesKey(data, Key.down)) &&
-					getTrimmedNoteForOption(cursorOptionIndex).length === 0
-				) {
+				if (isOptionNavigationKey(data) && getTrimmedNoteForOption(cursorOptionIndex).length === 0) {
 					isNoteEditorOpen = false;
 				} else {
 					noteEditor.handleInput(data);
@@ -236,7 +237,7 @@ export async function askSingleQuestionWithInlineNote(
 				}
 			}
 
-			if (matchesKey(data, Key.up)) {
+			if (isPreviousOptionKey(data)) {
 				cursorOptionIndex = Math.max(0, cursorOptionIndex - 1);
 				if (selectableOptionLabels[cursorOptionIndex] === OTHER_OPTION) {
 					openNoteEditorForCurrentOption();
@@ -244,7 +245,7 @@ export async function askSingleQuestionWithInlineNote(
 				requestUiRerender();
 				return;
 			}
-			if (matchesKey(data, Key.down)) {
+			if (isNextOptionKey(data)) {
 				cursorOptionIndex = Math.min(selectableOptionLabels.length - 1, cursorOptionIndex + 1);
 				if (selectableOptionLabels[cursorOptionIndex] === OTHER_OPTION) {
 					openNoteEditorForCurrentOption();

@@ -192,6 +192,37 @@ describe("askSingleQuestionWithInlineNote interactive branches", () => {
 		expect(result).toEqual({ selectedOptions: [] });
 	});
 
+	it("moves inline selection with Ctrl-N and Ctrl-P", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(40);
+				component.handleInput("\u000e");
+				const afterCtrlN = component.render(40).join("\n");
+				expect(afterCtrlN).toContain("→ ● B");
+				component.handleInput("\u0010");
+				const afterCtrlP = component.render(40).join("\n");
+				expect(afterCtrlP).toContain("→ ● A");
+				component.handleInput("\r");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askSingleQuestionWithInlineNote(ui, {
+			question: "Choose one",
+			options: [{ label: "A" }, { label: "B" }],
+		});
+
+		expect(result).toEqual({ selectedOptions: ["A"] });
+	});
+
 	it("submits selected predefined option with Enter", async () => {
 		const ui = {
 			custom: async (factory: any) => {
@@ -391,6 +422,41 @@ describe("askQuestionsWithTabs interactive branches", () => {
 		expect(result).toEqual({
 			cancelled: false,
 			selections: [{ selectedOptions: [], customInput: "edge-case" }],
+		});
+	});
+
+	it("moves tab selection with Ctrl-N and Ctrl-P", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(40);
+				component.handleInput("\u000e");
+				const afterCtrlN = component.render(40).join("\n");
+				expect(afterCtrlN).toContain("→ ○ B");
+				component.handleInput("\u0010");
+				const afterCtrlP = component.render(40).join("\n");
+				expect(afterCtrlP).toContain("→ ○ A");
+				component.handleInput("\r");
+				component.render(40);
+				component.handleInput("\r");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askQuestionsWithTabs(ui, [
+			{ id: "single_nav", question: "Single question", options: [{ label: "A" }, { label: "B" }] },
+		]);
+
+		expect(result).toEqual({
+			cancelled: false,
+			selections: [{ selectedOptions: ["A"] }],
 		});
 	});
 

@@ -198,7 +198,7 @@ For `Other`, a note is required to become valid.
 
 ## Keyboard Shortcuts
 
-- `↑ / ↓`: move between options
+- `Ctrl+P` / `Ctrl+N` or `↑ / ↓`: move between options
 - `← / →`: switch question tabs
 - `Enter`: select/toggle or submit (on Submit tab)
 - `Tab`: start/stop inline note editing
