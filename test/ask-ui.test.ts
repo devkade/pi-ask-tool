@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
+import { CURSOR_MARKER } from "@mariozechner/pi-tui";
 import { OTHER_OPTION, type AskQuestion } from "../src/ask-logic";
 import { askSingleQuestionWithInlineNote } from "../src/ask-inline-ui";
 import { askQuestionsWithTabs, formatSelectionForSubmitReview } from "../src/ask-tabs-ui";
@@ -102,8 +103,8 @@ describe("askSingleQuestionWithInlineNote", () => {
 			options: [{ label: "Session" }],
 		});
 
-		expect(caretAtEndLine).toContain(`Session — note: split${renderCursorCell()}`);
-		expect(caretMovedLine).toContain(`Session — note: spl${renderCursorCell("i")}t`);
+		expect(caretAtEndLine).toContain(`Session — note: split${CURSOR_MARKER}${renderCursorCell()}`);
+		expect(caretMovedLine).toContain(`Session — note: spl${CURSOR_MARKER}${renderCursorCell("i")}t`);
 	});
 });
 

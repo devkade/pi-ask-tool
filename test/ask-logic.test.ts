@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { CURSOR_MARKER, visibleWidth } from "@mariozechner/pi-tui";
 import {
 	OTHER_OPTION,
 	appendRecommendedTagToOptionLabels,
@@ -180,5 +181,22 @@ describe("buildWrappedOptionLabelWithInlineNote", () => {
 		);
 
 		expect(wrapped.join(" ")).toContain(`0123${renderCursorCell("4")}56789`);
+	});
+
+	it("can include a zero-width hardware cursor marker for IME composition", () => {
+		const wrapped = buildWrappedOptionLabelWithInlineNote(
+			"Session",
+			"한글",
+			true,
+			16,
+			INLINE_NOTE_WRAP_PADDING,
+			1,
+			true,
+		);
+		const rendered = wrapped.join(" ");
+
+		expect(rendered).toContain(CURSOR_MARKER);
+		expect(visibleWidth(CURSOR_MARKER)).toBe(0);
+		expect(rendered).toContain(`한${CURSOR_MARKER}${renderCursorCell("글")}`);
 	});
 });

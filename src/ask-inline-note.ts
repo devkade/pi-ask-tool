@@ -1,4 +1,4 @@
-import { wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { CURSOR_MARKER, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 
 const INLINE_NOTE_SEPARATOR = " — note: ";
 const INLINE_EDIT_CURSOR_INVERT_ON = "\u001b[7m";
@@ -17,14 +17,19 @@ function clampCursorIndex(index: number, rawTextLength: number): number {
 	return Math.floor(index);
 }
 
-function buildEditingInlineNote(rawNote: string, editingCursorIndex?: number): string {
+function buildEditingInlineNote(
+	rawNote: string,
+	editingCursorIndex?: number,
+	includeHardwareCursorMarker = false,
+): string {
 	const cursorIndex = clampCursorIndex(editingCursorIndex ?? rawNote.length, rawNote.length);
 	const beforeCursor = sanitizeNoteForInlineDisplay(rawNote.slice(0, cursorIndex));
 	const rawCharAtCursor = rawNote.slice(cursorIndex, cursorIndex + 1);
 	const charAtCursor = sanitizeNoteForInlineDisplay(rawCharAtCursor) || " ";
 	const afterCursorStartIndex = rawCharAtCursor.length > 0 ? cursorIndex + 1 : cursorIndex;
 	const afterCursor = sanitizeNoteForInlineDisplay(rawNote.slice(afterCursorStartIndex));
-	const cursorCell = `${INLINE_EDIT_CURSOR_INVERT_ON}${charAtCursor}${INLINE_EDIT_CURSOR_INVERT_OFF}`;
+	const cursorMarker = includeHardwareCursorMarker ? CURSOR_MARKER : "";
+	const cursorCell = `${cursorMarker}${INLINE_EDIT_CURSOR_INVERT_ON}${charAtCursor}${INLINE_EDIT_CURSOR_INVERT_OFF}`;
 	return `${beforeCursor}${cursorCell}${afterCursor}`;
 }
 
@@ -48,6 +53,7 @@ export function buildOptionLabelWithInlineNote(
 	isEditingNote: boolean,
 	maxInlineLabelLength?: number,
 	editingCursorIndex?: number,
+	includeHardwareCursorMarker = false,
 ): string {
 	const sanitizedNote = sanitizeNoteForInlineDisplay(rawNote);
 	if (!isEditingNote && sanitizedNote.trim().length === 0) {
@@ -55,7 +61,9 @@ export function buildOptionLabelWithInlineNote(
 	}
 
 	const labelPrefix = `${baseOptionLabel}${INLINE_NOTE_SEPARATOR}`;
-	const inlineNote = isEditingNote ? buildEditingInlineNote(rawNote, editingCursorIndex) : sanitizedNote.trim();
+	const inlineNote = isEditingNote
+		? buildEditingInlineNote(rawNote, editingCursorIndex, includeHardwareCursorMarker)
+		: sanitizedNote.trim();
 	const inlineLabel = `${labelPrefix}${inlineNote}`;
 
 	if (maxInlineLabelLength == null) {
@@ -74,6 +82,7 @@ export function buildWrappedOptionLabelWithInlineNote(
 	maxInlineLabelLength: number,
 	wrapPadding = INLINE_NOTE_WRAP_PADDING,
 	editingCursorIndex?: number,
+	includeHardwareCursorMarker = false,
 ): string[] {
 	const inlineLabel = buildOptionLabelWithInlineNote(
 		baseOptionLabel,
@@ -81,6 +90,7 @@ export function buildWrappedOptionLabelWithInlineNote(
 		isEditingNote,
 		undefined,
 		editingCursorIndex,
+		includeHardwareCursorMarker,
 	);
 	const sanitizedWrapPadding = Number.isFinite(wrapPadding) ? Math.max(0, Math.floor(wrapPadding)) : 0;
 	const sanitizedMaxInlineLabelLength = Number.isFinite(maxInlineLabelLength)

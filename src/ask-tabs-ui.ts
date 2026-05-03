@@ -388,6 +388,7 @@ export async function askQuestionsWithTabs(
 					Math.max(1, width - prefixWidth),
 					INLINE_NOTE_WRAP_PADDING,
 					isEditingThisOption ? activeEditingCursorIndex : undefined,
+					isEditingThisOption,
 				);
 				const continuationPrefix = " ".repeat(prefixWidth);
 				addLine(`${cursorPrefix}${theme.fg(optionColor, `${markerText}${wrappedInlineLabelLines[0] ?? ""}`)}`);
@@ -585,6 +586,7 @@ export async function askQuestionsWithTabs(
 		};
 
 		return {
+			focused: true,
 			render,
 			invalidate: () => {
 				cachedRenderedLines = undefined;
