@@ -2,8 +2,8 @@ name: Release & Publish
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -43,16 +43,32 @@ jobs:
       - name: Run full checks (typecheck + tests + coverage gate)
         run: npm run check
 
-      - name: Verify tag and package.json version match
+      - name: Read package version
+        id: package-version
         shell: bash
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-          if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
-            echo "Tag version (v$TAG_VERSION) does not match package.json version ($PKG_VERSION)."
+      - name: Ensure release tag does not already exist
+        shell: bash
+        run: |
+          TAG="${{ steps.package-version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release tag $TAG already exists. Refusing to publish this version again."
             exit 1
           fi
+
+      - name: Create and push release tag
+        shell: bash
+        run: |
+          TAG="${{ steps.package-version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "chore(release): ${{ steps.package-version.outputs.version }}"
+          git push origin "$TAG"
 
       - name: Publish package to npm (Trusted Publishing)
         run: npm publish --access public --provenance
@@ -60,4 +76,5 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.package-version.outputs.tag }}
           generate_release_notes: true
