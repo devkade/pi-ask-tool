@@ -388,6 +388,7 @@ export async function askQuestionsWithTabs(
 					Math.max(1, width - prefixWidth),
 					INLINE_NOTE_WRAP_PADDING,
 					isEditingThisOption ? activeEditingCursorIndex : undefined,
+					isEditingThisOption,
 				);
 				const continuationPrefix = " ".repeat(prefixWidth);
 				addLine(`${cursorPrefix}${theme.fg(optionColor, `${markerText}${wrappedInlineLabelLines[0] ?? ""}`)}`);
@@ -404,12 +405,12 @@ export async function askQuestionsWithTabs(
 					addLine(
 						theme.fg(
 							"dim",
-							" ↑↓ move • Enter toggle/select • Tab add note • ←/→ switch tabs • Esc cancel",
+							" ↑↓ move • Space toggle/select • Enter next • Tab add note • ←/→ switch tabs • Esc cancel",
 						),
 					);
 				} else {
 					addLine(
-						theme.fg("dim", " ↑↓ move • Enter select • Tab add note • ←/→ switch tabs • Esc cancel"),
+						theme.fg("dim", " ↑↓ move • Space/Enter select • Tab add note • ←/→ switch tabs • Esc cancel"),
 					);
 				}
 			}
@@ -533,7 +534,7 @@ export async function askQuestionsWithTabs(
 				return;
 			}
 
-			if (matchesKey(data, Key.enter)) {
+			if (matchesKey(data, Key.space)) {
 				const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
 
 				if (preparedQuestion.multi) {
@@ -566,6 +567,37 @@ export async function askQuestionsWithTabs(
 					return;
 				}
 
+				requestUiRerender();
+				return;
+			}
+
+			if (matchesKey(data, Key.enter)) {
+				const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
+
+				if (preparedQuestion.multi) {
+					if (
+						cursorOptionIndex === preparedQuestion.otherOptionIndex &&
+						selectedOptionIndexesByQuestion[questionIndex].includes(cursorOptionIndex) &&
+						getTrimmedQuestionNote(questionIndex, cursorOptionIndex).length === 0
+					) {
+						openNoteEditorForActiveOption();
+						return;
+					}
+
+					advanceToNextTabOrSubmit();
+					requestUiRerender();
+					return;
+				}
+
+				selectedOptionIndexesByQuestion[questionIndex] = [cursorOptionIndex];
+				if (
+					cursorOptionIndex === preparedQuestion.otherOptionIndex &&
+					getTrimmedQuestionNote(questionIndex, cursorOptionIndex).length === 0
+				) {
+					openNoteEditorForActiveOption();
+					return;
+				}
+
 				advanceToNextTabOrSubmit();
 				requestUiRerender();
 				return;
@@ -585,6 +617,7 @@ export async function askQuestionsWithTabs(
 		};
 
 		return {
+			focused: true,
 			render,
 			invalidate: () => {
 				cachedRenderedLines = undefined;
