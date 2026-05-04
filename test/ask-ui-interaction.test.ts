@@ -314,11 +314,11 @@ describe("askQuestionsWithTabs interactive branches", () => {
 
 				const component = await factory(tui, theme, {}, done);
 				component.render(26);
-				component.handleInput("\r");
-				component.handleInput("\r");
+				component.handleInput(" ");
+				component.handleInput(" ");
 				component.handleInput("\u001b[B");
 				component.handleInput("\u001b[B");
-				component.handleInput("\r");
+				component.handleInput(" ");
 				component.handleInput("\r");
 				const emptyOtherStillEditing = component.render(26).join("\n");
 				expect(emptyOtherStillEditing).toContain("Typing note inline");
@@ -328,7 +328,7 @@ describe("askQuestionsWithTabs interactive branches", () => {
 					component.handleInput(ch);
 				}
 				component.handleInput("\r");
-				component.handleInput("\u001b[C");
+				component.handleInput("\r");
 				const submitScreen = component.render(26).join("\n");
 				expect(submitScreen).toContain("Review answers");
 				component.handleInput("\r");
@@ -349,6 +349,43 @@ describe("askQuestionsWithTabs interactive branches", () => {
 		expect(result).toEqual({
 			cancelled: false,
 			selections: [{ selectedOptions: [], customInput: "org-sso" }],
+		});
+	});
+
+	it("advances multi-select questions with Enter without toggling the cursor option", async () => {
+		const ui = {
+			custom: async (factory: any) => {
+				const tui = { requestRender() {} };
+				const theme = createFakeTheme();
+				let result: any;
+				const done = (value: any) => {
+					result = value;
+				};
+
+				const component = await factory(tui, theme, {}, done);
+				component.render(40);
+				component.handleInput("\r");
+				const submitScreen = component.render(40).join("\n");
+				expect(submitScreen).toContain("Review answers");
+				expect(submitScreen).toContain("Complete required answers");
+				expect(submitScreen).toContain("(not answered)");
+				component.handleInput("\u001b");
+				return result;
+			},
+		} as unknown as ExtensionUIContext;
+
+		const result = await askQuestionsWithTabs(ui, [
+			{
+				id: "auth_methods",
+				question: "Select all methods",
+				options: [{ label: "JWT" }, { label: "Session" }],
+				multi: true,
+			},
+		]);
+
+		expect(result).toEqual({
+			cancelled: true,
+			selections: [{ selectedOptions: [] }],
 		});
 	});
 
