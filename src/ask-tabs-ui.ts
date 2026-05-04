@@ -405,12 +405,12 @@ export async function askQuestionsWithTabs(
 					addLine(
 						theme.fg(
 							"dim",
-							" ↑↓ move • Enter toggle/select • Tab add note • ←/→ switch tabs • Esc cancel",
+							" ↑↓ move • Space toggle/select • Enter next • Tab add note • ←/→ switch tabs • Esc cancel",
 						),
 					);
 				} else {
 					addLine(
-						theme.fg("dim", " ↑↓ move • Enter select • Tab add note • ←/→ switch tabs • Esc cancel"),
+						theme.fg("dim", " ↑↓ move • Space/Enter select • Tab add note • ←/→ switch tabs • Esc cancel"),
 					);
 				}
 			}
@@ -534,7 +534,7 @@ export async function askQuestionsWithTabs(
 				return;
 			}
 
-			if (matchesKey(data, Key.enter)) {
+			if (matchesKey(data, Key.space)) {
 				const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
 
 				if (preparedQuestion.multi) {
@@ -554,6 +554,37 @@ export async function askQuestionsWithTabs(
 						return;
 					}
 
+					requestUiRerender();
+					return;
+				}
+
+				selectedOptionIndexesByQuestion[questionIndex] = [cursorOptionIndex];
+				if (
+					cursorOptionIndex === preparedQuestion.otherOptionIndex &&
+					getTrimmedQuestionNote(questionIndex, cursorOptionIndex).length === 0
+				) {
+					openNoteEditorForActiveOption();
+					return;
+				}
+
+				requestUiRerender();
+				return;
+			}
+
+			if (matchesKey(data, Key.enter)) {
+				const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
+
+				if (preparedQuestion.multi) {
+					if (
+						cursorOptionIndex === preparedQuestion.otherOptionIndex &&
+						selectedOptionIndexesByQuestion[questionIndex].includes(cursorOptionIndex) &&
+						getTrimmedQuestionNote(questionIndex, cursorOptionIndex).length === 0
+					) {
+						openNoteEditorForActiveOption();
+						return;
+					}
+
+					advanceToNextTabOrSubmit();
 					requestUiRerender();
 					return;
 				}
