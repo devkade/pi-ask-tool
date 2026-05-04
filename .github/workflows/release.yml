@@ -52,16 +52,20 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure release tag does not already exist
+      - name: Check whether release tag already exists
+        id: release-tag
         shell: bash
         run: |
           TAG="${{ steps.package-version.outputs.tag }}"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Release tag $TAG already exists. Refusing to publish this version again."
-            exit 1
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release tag $TAG already exists. Skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create and push release tag
+        if: steps.release-tag.outputs.exists != 'true'
         shell: bash
         run: |
           TAG="${{ steps.package-version.outputs.tag }}"
@@ -71,9 +75,11 @@ jobs:
           git push origin "$TAG"
 
       - name: Publish package to npm (Trusted Publishing)
+        if: steps.release-tag.outputs.exists != 'true'
         run: npm publish --access public --provenance
 
       - name: Create GitHub Release
+        if: steps.release-tag.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.package-version.outputs.tag }}
