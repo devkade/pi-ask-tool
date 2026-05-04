@@ -2,8 +2,8 @@ name: Release & Publish
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -43,21 +43,44 @@ jobs:
       - name: Run full checks (typecheck + tests + coverage gate)
         run: npm run check
 
-      - name: Verify tag and package.json version match
+      - name: Read package version
+        id: package-version
         shell: bash
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-          if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
-            echo "Tag version (v$TAG_VERSION) does not match package.json version ($PKG_VERSION)."
-            exit 1
+      - name: Check whether release tag already exists
+        id: release-tag
+        shell: bash
+        run: |
+          TAG="${{ steps.package-version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release tag $TAG already exists. Skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Create and push release tag
+        if: steps.release-tag.outputs.exists != 'true'
+        shell: bash
+        run: |
+          TAG="${{ steps.package-version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "chore(release): ${{ steps.package-version.outputs.version }}"
+          git push origin "$TAG"
+
       - name: Publish package to npm (Trusted Publishing)
+        if: steps.release-tag.outputs.exists != 'true'
         run: npm publish --access public --provenance
 
       - name: Create GitHub Release
+        if: steps.release-tag.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.package-version.outputs.tag }}
           generate_release_notes: true
