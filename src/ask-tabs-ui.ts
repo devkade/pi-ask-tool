@@ -20,6 +20,15 @@ import {
 import { getLinearCursorIndexFromEditor } from "./ask-inline-editor-cursor";
 import { INLINE_NOTE_WRAP_PADDING, buildWrappedOptionLabelWithInlineNote } from "./ask-inline-note";
 import { appendWrappedTextLines } from "./ask-text-wrap";
+import {
+	MIN_VIEWPORT_HEIGHT,
+	buildScrollIndicator,
+	clampScrollOffset,
+	maxScrollOffset,
+	resolveViewportHeight,
+	sliceViewport,
+	type ViewportAnchor,
+} from "./ask-viewport";
 
 interface PreparedQuestion {
 	id: string;
@@ -149,6 +158,12 @@ export async function askQuestionsWithTabs(
 		let isNoteEditorOpen = false;
 		let cachedRenderedLines: string[] | undefined;
 		let cachedRenderedWidth: number | undefined;
+		let cachedRenderedHeight: number | undefined;
+		let hasUserScrolled = false;
+		let lastViewportHeight: number | undefined;
+		let lastTotalBodyLines = 0;
+		/** Scroll offset is per tab, so switching tabs restores that tab's view. */
+		const scrollOffsetByTab: number[] = Array(preparedQuestions.length + 1).fill(0);
 		const cursorOptionIndexByQuestion = [...initialCursorOptionIndexByQuestion];
 		const selectedOptionIndexesByQuestion = preparedQuestions.map(() => [] as number[]);
 		const noteByQuestionByOption = preparedQuestions.map((preparedQuestion) =>
@@ -195,7 +210,31 @@ export async function askQuestionsWithTabs(
 		const requestUiRerender = () => {
 			cachedRenderedLines = undefined;
 			cachedRenderedWidth = undefined;
+			cachedRenderedHeight = undefined;
 			tui.requestRender();
+		};
+
+		/** Follow the active target again after any selection-changing key. */
+		const resetScrollFollow = () => {
+			hasUserScrolled = false;
+		};
+
+		/** One screenful, minus a line of overlap so context is not lost. */
+		const scrollStep = (): number => Math.max(1, (lastViewportHeight ?? MIN_VIEWPORT_HEIGHT) - 1);
+
+		/** Scroll the active tab's viewport without moving the option cursor. */
+		const scrollViewportBy = (lineDelta: number): boolean => {
+			if (lastViewportHeight == null || lastTotalBodyLines <= lastViewportHeight) return false;
+
+			const currentOffset = scrollOffsetByTab[activeTabIndex] ?? 0;
+			const maxOffset = maxScrollOffset(lastTotalBodyLines, lastViewportHeight);
+			const nextOffset = clampScrollOffset(currentOffset + lineDelta, lastTotalBodyLines, lastViewportHeight);
+			if (nextOffset === currentOffset) return false;
+
+			scrollOffsetByTab[activeTabIndex] = nextOffset;
+			hasUserScrolled = nextOffset < maxOffset || lineDelta < 0;
+			requestUiRerender();
+			return true;
 		};
 
 		const getActiveQuestionIndex = (): number | null => {
@@ -223,6 +262,7 @@ export async function askQuestionsWithTabs(
 			if (questionIndex == null) return;
 
 			isNoteEditorOpen = true;
+			resetScrollFollow();
 			const optionIndex = cursorOptionIndexByQuestion[questionIndex];
 			noteEditor.setText(getQuestionNote(questionIndex, optionIndex));
 			requestUiRerender();
@@ -230,6 +270,7 @@ export async function askQuestionsWithTabs(
 
 		const advanceToNextTabOrSubmit = () => {
 			activeTabIndex = Math.min(submitTabIndex, activeTabIndex + 1);
+			resetScrollFollow();
 		};
 
 		noteEditor.onChange = (value) => {
@@ -237,6 +278,7 @@ export async function askQuestionsWithTabs(
 			if (questionIndex == null) return;
 			const optionIndex = cursorOptionIndexByQuestion[questionIndex];
 			noteByQuestionByOption[questionIndex][optionIndex] = value;
+			resetScrollFollow();
 			requestUiRerender();
 		};
 
@@ -304,11 +346,21 @@ export async function askQuestionsWithTabs(
 			return tabParts.join("");
 		};
 
-		const renderSubmitTab = (width: number, renderedLines: string[]): void => {
-			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
+		/**
+		 * Build the scrollable review body for the submit tab.
+		 * The anchor is the status line, so the reason a submit is blocked
+		 * stays on screen even when the review list overflows.
+		 */
+		const buildSubmitTabBody = (
+			width: number,
+		): { lines: string[]; anchor: ViewportAnchor; priority: ViewportAnchor } => {
+			const bodyLines: string[] = [];
+			const addLine = (line: string) => bodyLines.push(truncateToWidth(line, width));
 
 			addLine(theme.fg("accent", theme.bold(" Review answers")));
-			renderedLines.push("");
+			bodyLines.push("");
+			// The answers and the submit status matter more than the heading.
+			const reviewStart = bodyLines.length;
 
 			for (let questionIndex = 0; questionIndex < preparedQuestions.length; questionIndex++) {
 				const preparedQuestion = preparedQuestions[questionIndex];
@@ -327,7 +379,8 @@ export async function askQuestionsWithTabs(
 				addLine(` ${statusIcon} ${theme.fg("muted", `${preparedQuestion.tabLabel}:`)} ${theme.fg("text", value)}`);
 			}
 
-			renderedLines.push("");
+			bodyLines.push("");
+			const anchorStart = bodyLines.length;
 			if (isAllQuestionSelectionsValid()) {
 				addLine(theme.fg("success", " Press Enter to submit"));
 			} else {
@@ -343,10 +396,28 @@ export async function askQuestionsWithTabs(
 					.join(", ");
 				addLine(theme.fg("warning", ` Complete required answers: ${missingQuestions}`));
 			}
-			addLine(theme.fg("dim", " ←/→ switch tabs • Esc cancel"));
+
+			return {
+				lines: bodyLines,
+				anchor: { start: anchorStart, end: bodyLines.length - 1 },
+				priority: { start: reviewStart, end: bodyLines.length - 1 },
+			};
 		};
 
-		const renderQuestionTab = (width: number, renderedLines: string[], questionIndex: number): void => {
+		const renderSubmitTabHint = (width: number, renderedLines: string[]): void => {
+			renderedLines.push(truncateToWidth(theme.fg("dim", " ←/→ switch tabs • Esc cancel"), width));
+		};
+
+		/**
+		 * Build the scrollable body for a question tab.
+		 * The anchor is the active option including its wrapped inline note,
+		 * so the caret stays visible while editing.
+		 */
+		const buildQuestionTabBody = (
+			width: number,
+			questionIndex: number,
+		): { lines: string[]; anchor: ViewportAnchor; priority: ViewportAnchor } => {
+			const renderedLines: string[] = [];
 			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
 			const preparedQuestion = preparedQuestions[questionIndex];
 			const cursorOptionIndex = cursorOptionIndexByQuestion[questionIndex];
@@ -369,6 +440,11 @@ export async function askQuestionsWithTabs(
 			const activeEditingCursorIndex = isNoteEditorOpen
 				? getLinearCursorIndexFromEditor(noteEditor)
 				: undefined;
+			let anchorStart = 0;
+			let anchorEnd = 0;
+			// The options block is what the reader has to choose from, so it
+			// takes precedence over the question and description above it.
+			const optionsStart = renderedLines.length;
 			for (let optionIndex = 0; optionIndex < preparedQuestion.options.length; optionIndex++) {
 				const optionLabel = preparedQuestion.options[optionIndex];
 				const isCursorOption = optionIndex === cursorOptionIndex;
@@ -391,13 +467,30 @@ export async function askQuestionsWithTabs(
 					isEditingThisOption,
 				);
 				const continuationPrefix = " ".repeat(prefixWidth);
+				if (isCursorOption) {
+					anchorStart = renderedLines.length;
+				}
 				addLine(`${cursorPrefix}${theme.fg(optionColor, `${markerText}${wrappedInlineLabelLines[0] ?? ""}`)}`);
 				for (const wrappedLine of wrappedInlineLabelLines.slice(1)) {
 					addLine(`${continuationPrefix}${theme.fg(optionColor, wrappedLine)}`);
 				}
+				if (isCursorOption) {
+					anchorEnd = renderedLines.length - 1;
+				}
 			}
+			const optionsEnd = Math.max(optionsStart, renderedLines.length - 1);
 
-			renderedLines.push("");
+			return {
+				lines: renderedLines,
+				anchor: { start: anchorStart, end: anchorEnd },
+				priority: { start: optionsStart, end: optionsEnd },
+			};
+		};
+
+		const renderQuestionTabHint = (width: number, renderedLines: string[], questionIndex: number): void => {
+			const preparedQuestion = preparedQuestions[questionIndex];
+			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
+
 			if (isNoteEditorOpen) {
 				addLine(theme.fg("dim", " Typing note inline • Enter save note • Tab/Esc stop editing"));
 			} else {
@@ -417,7 +510,10 @@ export async function askQuestionsWithTabs(
 		};
 
 		const render = (width: number): string[] => {
-			if (cachedRenderedLines && cachedRenderedWidth === width) return cachedRenderedLines;
+			const terminalRows = tui.terminal?.rows;
+			if (cachedRenderedLines && cachedRenderedWidth === width && cachedRenderedHeight === terminalRows) {
+				return cachedRenderedLines;
+			}
 
 			const renderedLines: string[] = [];
 			const addLine = (line: string) => renderedLines.push(truncateToWidth(line, width));
@@ -426,21 +522,74 @@ export async function askQuestionsWithTabs(
 			addLine(` ${renderTabs()}`);
 			renderedLines.push("");
 
-			if (activeTabIndex === submitTabIndex) {
-				renderSubmitTab(width, renderedLines);
+			const isSubmitTab = activeTabIndex === submitTabIndex;
+			const { lines: bodyLines, anchor, priority } = isSubmitTab
+				? buildSubmitTabBody(width)
+				: buildQuestionTabBody(width, activeTabIndex);
+
+			// Chrome is the two rules, the tab bar, the blank line below it, a
+			// blank separator and the hint line. Overflow adds a scroll indicator.
+			const baseChromeRows = 6;
+			const fitsWithoutIndicator = resolveViewportHeight(terminalRows, baseChromeRows);
+			const viewportHeight =
+				fitsWithoutIndicator != null && bodyLines.length > fitsWithoutIndicator
+					? resolveViewportHeight(terminalRows, baseChromeRows + 1)
+					: fitsWithoutIndicator;
+
+			const slice = sliceViewport({
+				lines: bodyLines,
+				viewportHeight,
+				anchor,
+				priority,
+				scrollOffset: scrollOffsetByTab[activeTabIndex] ?? 0,
+				preferScrollOffset: hasUserScrolled,
+			});
+			scrollOffsetByTab[activeTabIndex] = slice.scrollOffset;
+			lastViewportHeight = viewportHeight;
+			lastTotalBodyLines = slice.totalLines;
+
+			for (const bodyLine of slice.lines) {
+				renderedLines.push(bodyLine);
+			}
+
+			const scrollIndicator = buildScrollIndicator(slice);
+			if (scrollIndicator) {
+				addLine(theme.fg("dim", ` ${scrollIndicator} • Shift+↑/↓ scroll`));
+			}
+
+			renderedLines.push("");
+			if (isSubmitTab) {
+				renderSubmitTabHint(width, renderedLines);
 			} else {
-				renderQuestionTab(width, renderedLines, activeTabIndex);
+				renderQuestionTabHint(width, renderedLines, activeTabIndex);
 			}
 
 			addLine(theme.fg("accent", "─".repeat(width)));
 			cachedRenderedLines = renderedLines;
 			cachedRenderedWidth = width;
+			cachedRenderedHeight = terminalRows;
 			return renderedLines;
 		};
 
 		const handleInput = (data: string) => {
 			if (matchesKey(data, Key.ctrl("c"))) {
 				done(createTabsUiStateSnapshot(true, selectedOptionIndexesByQuestion, noteByQuestionByOption));
+				return;
+			}
+
+			// Scrolling never changes the selection, so it stays available
+			// while the inline note editor is open.
+			//
+			// Shift+arrow is the primary binding: terminal multiplexers and
+			// terminal emulators commonly bind PgUp/PgDn to their own
+			// scrollback and never forward them. PgUp/PgDn stays as a
+			// secondary binding for setups that do forward it.
+			if (matchesKey(data, Key.shift("up")) || matchesKey(data, Key.pageUp)) {
+				scrollViewportBy(-scrollStep());
+				return;
+			}
+			if (matchesKey(data, Key.shift("down")) || matchesKey(data, Key.pageDown)) {
+				scrollViewportBy(scrollStep());
 				return;
 			}
 
@@ -468,6 +617,7 @@ export async function askQuestionsWithTabs(
 
 			if (matchesKey(data, Key.left)) {
 				activeTabIndex = (activeTabIndex - 1 + preparedQuestions.length + 1) % (preparedQuestions.length + 1);
+				resetScrollFollow();
 				if (getActiveQuestionIndex() != null) {
 					const questionIndex = getActiveQuestionIndex() as number;
 					if (preparedQuestions[questionIndex].options[cursorOptionIndexByQuestion[questionIndex]] === OTHER_OPTION) {
@@ -481,6 +631,7 @@ export async function askQuestionsWithTabs(
 
 			if (matchesKey(data, Key.right)) {
 				activeTabIndex = (activeTabIndex + 1) % (preparedQuestions.length + 1);
+				resetScrollFollow();
 				if (getActiveQuestionIndex() != null) {
 					const questionIndex = getActiveQuestionIndex() as number;
 					if (preparedQuestions[questionIndex].options[cursorOptionIndexByQuestion[questionIndex]] === OTHER_OPTION) {
@@ -508,6 +659,7 @@ export async function askQuestionsWithTabs(
 
 			if (matchesKey(data, Key.up)) {
 				cursorOptionIndexByQuestion[questionIndex] = Math.max(0, cursorOptionIndexByQuestion[questionIndex] - 1);
+				resetScrollFollow();
 				if (preparedQuestion.options[cursorOptionIndexByQuestion[questionIndex]] === OTHER_OPTION) {
 					openNoteEditorForActiveOption();
 					return;
@@ -521,6 +673,7 @@ export async function askQuestionsWithTabs(
 					preparedQuestion.options.length - 1,
 					cursorOptionIndexByQuestion[questionIndex] + 1,
 				);
+				resetScrollFollow();
 				if (preparedQuestion.options[cursorOptionIndexByQuestion[questionIndex]] === OTHER_OPTION) {
 					openNoteEditorForActiveOption();
 					return;
@@ -622,6 +775,7 @@ export async function askQuestionsWithTabs(
 			invalidate: () => {
 				cachedRenderedLines = undefined;
 				cachedRenderedWidth = undefined;
+				cachedRenderedHeight = undefined;
 			},
 			handleInput,
 		};
