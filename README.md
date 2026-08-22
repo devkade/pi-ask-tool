@@ -25,6 +25,7 @@ This extension provides:
 - **Tab-based multi-question flow** with a final submit review tab
 - **Inline note editing** (no large UI pane shifts)
 - **Question text auto-wrap** (avoids one-line `...` truncation)
+- **Height-aware scrolling** so tall questions stay usable in small terminals
 - **Optional Markdown context** for longer explanations/structure diagrams
 - **Automatic `Other (type your own)` handling**
 
@@ -202,7 +203,30 @@ For `Other`, a note is required to become valid.
 - `← / →`: switch question tabs
 - `Enter`: select/toggle or submit (on Submit tab)
 - `Tab`: start/stop inline note editing
+- `Shift+↑ / Shift+↓` (or `PgUp / PgDn`): scroll when the question is taller
+  than the terminal
 - `Esc`: cancel flow
+
+## Tall Questions and Small Terminals
+
+The ask UI never renders more lines than your terminal has rows. When a
+question, its description and its options do not all fit, the UI shows a
+window onto that content and keeps the active option visible as you move.
+
+- A hint such as `↑ 12 more · ↓ 4 more` appears whenever content is hidden.
+- `Shift+↑` / `Shift+↓` scroll without changing your selection, so you can
+  read back through a long description and then carry on answering.
+  `PgUp` / `PgDn` do the same where the terminal forwards them — many
+  multiplexers and terminals bind those to their own scrollback and never
+  pass them through, which is why Shift+arrow is the primary binding.
+- Moving the selection, editing a note, or switching tabs returns the view
+  to the active option.
+- Each tab keeps its own scroll position.
+
+This matters beyond readability: a component taller than the viewport forces
+pi's renderer to repaint the whole screen on every keystroke, which clears
+the terminal scrollback and makes the prompt flicker. Bounding the height
+keeps redraws incremental and leaves your scrollback intact.
 
 ## Tool Schema
 
